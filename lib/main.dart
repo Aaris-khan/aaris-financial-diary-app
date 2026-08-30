@@ -72,6 +72,7 @@ abstract final class UIConstants {
   static const Duration pressIn = Duration(milliseconds: 70);
   static const Duration pressOut = Duration(milliseconds: 210);
   static const Duration motion = Duration(milliseconds: 260);
+  static const Duration dashboardReveal = Duration(milliseconds: 520);
   static const Duration routeIn = Duration(milliseconds: 280);
   static const Duration routeOut = Duration(milliseconds: 220);
 
@@ -87,6 +88,16 @@ abstract final class UIConstants {
   // the unit interval, so buttons and routes never wobble past their target.
   static const Curve motionOut = Cubic(0.16, 1, 0.3, 1);
   static const Curve motionIn = Cubic(0.32, 0, 0.67, 0);
+}
+
+abstract final class AppMotion {
+  // Subscribe only to the platform's motion preference instead of rebuilding
+  // motion-aware widgets for every unrelated MediaQuery change.
+  static bool reduce(BuildContext context) =>
+      MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+
+  static bool enabled(BuildContext context) =>
+      !reduce(context) && TickerMode.valuesOf(context).enabled;
 }
 
 abstract final class AppStyles {
@@ -115,21 +126,21 @@ abstract final class AppStyles {
     return <BoxShadow>[
       // A tight contact layer anchors the card without flattening its edges.
       BoxShadow(
-        color: depthInk.withAlpha(dark ? 68 : 18),
+        color: depthInk.withAlpha(dark ? 76 : 22),
         blurRadius: 5,
         spreadRadius: -1.25,
         offset: const Offset(0, 2.5),
       ),
       // The directional key shadow establishes a clear virtual light source.
       BoxShadow(
-        color: depthInk.withAlpha(dark ? 48 : 14),
+        color: depthInk.withAlpha(dark ? 56 : 18),
         blurRadius: 22,
         spreadRadius: -6,
         offset: const Offset(0, 9),
       ),
       // The very soft ambient layer creates lift without a grey muddy ring.
       BoxShadow(
-        color: depthInk.withAlpha(dark ? 34 : 9),
+        color: depthInk.withAlpha(dark ? 40 : 12),
         blurRadius: 52,
         spreadRadius: -12,
         offset: const Offset(0, 20),
@@ -388,8 +399,7 @@ class _RootStage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool reduceMotion =
-        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final bool reduceMotion = AppMotion.reduce(context);
     final Widget stage;
     final String stageKey;
     if (booting) {
@@ -633,7 +643,7 @@ class _PremiumTransitionsBuilder extends PageTransitionsBuilder {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
-    if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) {
+    if (AppMotion.reduce(context)) {
       return child;
     }
     final Animation<double> curved = CurvedAnimation(
@@ -697,8 +707,59 @@ class _AppMark extends StatelessWidget {
         BoxShadow(color: appleBlue.withAlpha(76), blurRadius: 22),
       ],
     ),
-    child: Icon(Icons.eco_rounded, color: appleBlue2, size: size * .52),
+    alignment: Alignment.center,
+    child: SizedBox.square(
+      dimension: size * .52,
+      child: const CustomPaint(painter: _FontAwesomeLeafPainter()),
+    ),
   );
+}
+
+class _FontAwesomeLeafPainter extends CustomPainter {
+  const _FontAwesomeLeafPainter();
+
+  // The reference website uses Font Awesome Free 6.6.0 `fa-solid fa-leaf`.
+  // This is its exact 512 x 512 vector path, kept local so the mark remains
+  // crisp and identical without adding a runtime font or package dependency.
+  // Source: https://fontawesome.com/icons/leaf (CC BY 4.0, Fonticons, Inc.).
+  static final Path _leaf = Path()
+    ..moveTo(272, 96)
+    ..relativeCubicTo(-78.6, 0, -145.1, 51.5, -167.7, 122.5)
+    ..relativeCubicTo(33.6, -17, 71.5, -26.5, 111.7, -26.5)
+    ..relativeLineTo(88, 0)
+    ..relativeCubicTo(8.8, 0, 16, 7.2, 16, 16)
+    ..cubicTo(320, 216.8, 312.8, 224, 304, 224)
+    ..relativeLineTo(-16, 0)
+    ..relativeLineTo(-72, 0)
+    ..relativeCubicTo(-16.6, 0, -32.7, 1.9, -48.3, 5.4)
+    ..relativeCubicTo(-25.9, 5.9, -49.9, 16.4, -71.4, 30.7)
+    ..cubicTo(38.3, 298.8, 0, 364.9, 0, 440)
+    ..relativeLineTo(0, 16)
+    ..relativeCubicTo(0, 13.3, 10.7, 24, 24, 24)
+    ..cubicTo(37.3, 480, 48, 469.3, 48, 456)
+    ..relativeLineTo(0, -16)
+    ..relativeCubicTo(0, -48.7, 20.7, -92.5, 53.8, -123.2)
+    ..cubicTo(121.6, 392.3, 190.3, 448, 272, 448)
+    ..relativeLineTo(1, 0)
+    ..relativeCubicTo(132.1, -.7, 239, -130.9, 239, -291.4)
+    ..relativeCubicTo(0, -42.6, -7.5, -83.1, -21.1, -119.6)
+    ..relativeCubicTo(-2.6, -6.9, -12.7, -6.6, -16.2, -.1)
+    ..cubicTo(455.9, 72.1, 418.7, 96, 376, 96)
+    ..lineTo(272, 96)
+    ..close();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    canvas
+      ..save()
+      ..scale(size.width / 512, size.height / 512)
+      ..drawPath(_leaf, Paint()..color = appleBlue2)
+      ..restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _FontAwesomeLeafPainter oldDelegate) => false;
 }
 
 class _LoginScreen extends StatefulWidget {
@@ -1509,6 +1570,15 @@ class _PressableState extends State<_Pressable>
     );
   }
 
+  @override
+  void didUpdateWidget(covariant _Pressable oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.onTap != null && widget.onTap == null) {
+      _pressController.stop();
+      _pressController.value = 0;
+    }
+  }
+
   void _captureTouch(TapDownDetails details) {
     final RenderBox? box = context.findRenderObject() as RenderBox?;
     if (box == null || !box.hasSize || box.size.isEmpty) return;
@@ -1584,7 +1654,7 @@ class _PressableState extends State<_Pressable>
         child: widget.child,
         builder: (BuildContext context, Widget? child) {
           final bool dark = Theme.of(context).brightness == Brightness.dark;
-          final bool reduceMotion = MediaQuery.of(context).disableAnimations;
+          final bool reduceMotion = AppMotion.reduce(context);
           final double feedback = _pressController.value;
           final double pressed = feedback.clamp(0.0, 1.0).toDouble();
           final double motion = reduceMotion ? 0 : feedback;
@@ -2671,68 +2741,100 @@ class _MonthYearPicker extends StatelessWidget {
   const _MonthYearPicker({
     required this.month,
     required this.year,
+    required this.availablePeriods,
     required this.onChanged,
   });
 
   final int month;
   final int year;
+  final List<DateTime> availablePeriods;
   final void Function(int month, int year) onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final int currentYear = DateTime.now().year;
+    final List<int> years =
+        availablePeriods.map((DateTime period) => period.year).toSet().toList()
+          ..sort((int a, int b) => b.compareTo(a));
+    final int? selectedYear = years.contains(year)
+        ? year
+        : (years.isEmpty ? null : years.first);
+    final List<int> months = selectedYear == null
+        ? <int>[]
+        : (availablePeriods
+              .where((DateTime period) => period.year == selectedYear)
+              .map((DateTime period) => period.month)
+              .toSet()
+              .toList()
+            ..sort());
+    final int? selectedMonth = months.contains(month)
+        ? month
+        : (months.isEmpty ? null : months.last);
     return Row(
       children: <Widget>[
         Expanded(
           child: DropdownButtonFormField<int>(
-            key: ValueKey<String>('month-$month'),
-            initialValue: month,
+            key: ValueKey<String>('month-$selectedYear-$selectedMonth'),
+            initialValue: selectedMonth,
+            hint: const Text('No month'),
             style: const TextStyle(
               color: appleBlue,
               fontWeight: FontWeight.w800,
             ),
             iconEnabledColor: appleBlue,
             decoration: _pickerDecoration(),
-            items: List<DropdownMenuItem<int>>.generate(
-              12,
-              (int index) => DropdownMenuItem<int>(
-                value: index + 1,
-                child: Text(
-                  DateFormat.MMMM().format(DateTime(2024, index + 1)),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ),
-            onChanged: (int? value) {
-              if (value != null) {
-                HapticFeedback.selectionClick();
-                onChanged(value, year);
-              }
-            },
+            items: months
+                .map(
+                  (int item) => DropdownMenuItem<int>(
+                    value: item,
+                    child: Text(
+                      DateFormat.MMMM().format(DateTime(2024, item)),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                )
+                .toList(),
+            onChanged: selectedYear == null
+                ? null
+                : (int? value) {
+                    if (value != null) {
+                      HapticFeedback.selectionClick();
+                      onChanged(value, selectedYear);
+                    }
+                  },
           ),
         ),
         const SizedBox(width: 12),
         SizedBox(
           width: 118,
           child: DropdownButtonFormField<int>(
-            key: ValueKey<String>('year-$year'),
-            initialValue: year,
+            key: ValueKey<String>('year-$selectedYear'),
+            initialValue: selectedYear,
+            hint: const Text('No year'),
             style: const TextStyle(
               color: appleBlue,
               fontWeight: FontWeight.w800,
             ),
             iconEnabledColor: appleBlue,
             decoration: _pickerDecoration(),
-            items: List<DropdownMenuItem<int>>.generate(12, (int index) {
-              final int item = currentYear + 2 - index;
-              return DropdownMenuItem<int>(value: item, child: Text('$item'));
-            }),
-            onChanged: (int? value) {
-              if (value != null) {
-                HapticFeedback.selectionClick();
-                onChanged(month, value);
-              }
-            },
+            items: years
+                .map(
+                  (int item) =>
+                      DropdownMenuItem<int>(value: item, child: Text('$item')),
+                )
+                .toList(),
+            onChanged: years.isEmpty
+                ? null
+                : (int? value) {
+                    if (value == null) return;
+                    final DateTime? target = LedgerMath.resolveRecordPeriod(
+                      availablePeriods,
+                      month: month,
+                      year: value,
+                    );
+                    if (target == null || target.year != value) return;
+                    HapticFeedback.selectionClick();
+                    onChanged(target.month, target.year);
+                  },
           ),
         ),
       ],
@@ -2842,8 +2944,7 @@ class _SheetFrame extends StatelessWidget {
 }
 
 Future<T?> _openSheet<T>(BuildContext context, Widget child) {
-  final bool reduceMotion =
-      MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+  final bool reduceMotion = AppMotion.reduce(context);
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true,
@@ -2868,8 +2969,7 @@ Future<bool> _confirm(
   String message, {
   bool dangerous = true,
 }) async {
-  final bool reduceMotion =
-      MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+  final bool reduceMotion = AppMotion.reduce(context);
   final bool? result = await showDialog<bool>(
     context: context,
     requestFocus: true,
@@ -2907,8 +3007,7 @@ Future<bool> _confirm(
 
 void _toast(BuildContext context, String message, {bool error = false}) {
   if (error) HapticFeedback.errorNotification();
-  final bool reduceMotion =
-      MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+  final bool reduceMotion = AppMotion.reduce(context);
   final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
   messenger.hideCurrentSnackBar();
   messenger.showSnackBar(
@@ -3064,7 +3163,7 @@ PageRoute<T> _premiumRoute<T>(Widget child) => PageRouteBuilder<T>(
         Animation<double> secondaryAnimation,
         Widget child,
       ) {
-        if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) {
+        if (AppMotion.reduce(context)) {
           return child;
         }
         final Animation<double> curved = CurvedAnimation(
@@ -3170,10 +3269,60 @@ class _AiHubButton extends StatelessWidget {
   }
 }
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({required this.sync, super.key});
 
   final LedgerSyncService sync;
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _revealController;
+  bool _revealScheduled = false;
+
+  LedgerSyncService get sync => widget.sync;
+
+  @override
+  void initState() {
+    super.initState();
+    _revealController = AnimationController(
+      vsync: this,
+      duration: UIConstants.dashboardReveal,
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (AppMotion.reduce(context)) {
+      _revealController.value = 1;
+      _revealScheduled = true;
+      return;
+    }
+    if (_revealScheduled || !AppMotion.enabled(context)) return;
+    _revealScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (AppMotion.reduce(context)) {
+        _revealController.value = 1;
+      } else if (TickerMode.valuesOf(context).enabled) {
+        _revealController.forward();
+      } else {
+        // The dashboard became off-screen before its first frame. Let the
+        // next enabled TickerMode dependency change schedule it once.
+        _revealScheduled = false;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _revealController.dispose();
+    super.dispose();
+  }
 
   Future<void> _logout(BuildContext context) async {
     if (sync.pendingWrites > 0) {
@@ -3272,73 +3421,94 @@ class DashboardScreen extends StatelessWidget {
                   clipBehavior: Clip.none,
                   childAspectRatio: 1.0,
                   children: <Widget>[
-                    _MetricCard(
-                      icon: Icons.handshake_rounded,
-                      label: 'To Receive (+)',
-                      value: _money(totals.toReceive),
-                      color: appleGreen,
+                    _DashboardCardReveal(
+                      animation: _revealController,
+                      order: 0,
+                      child: _MetricCard(
+                        icon: Icons.handshake_rounded,
+                        label: 'To Receive (+)',
+                        value: _money(totals.toReceive),
+                        color: appleGreen,
+                      ),
                     ),
-                    _MetricCard(
-                      icon: Icons.request_quote_rounded,
-                      label: 'To Pay (-)',
-                      value: _money(totals.toPay),
-                      color: appleRed,
+                    _DashboardCardReveal(
+                      animation: _revealController,
+                      order: 1,
+                      child: _MetricCard(
+                        icon: Icons.request_quote_rounded,
+                        label: 'To Pay (-)',
+                        value: _money(totals.toPay),
+                        color: appleRed,
+                      ),
                     ),
-                    _MetricCard(
-                      icon: premiumExpenseIcon,
-                      label: 'Month Expense',
-                      value: _money(totals.monthExpense),
-                      color: diaryOrange,
+                    _DashboardCardReveal(
+                      animation: _revealController,
+                      order: 2,
+                      child: _MetricCard(
+                        icon: premiumExpenseIcon,
+                        label: 'Month Expense',
+                        value: _money(totals.monthExpense),
+                        color: diaryOrange,
+                      ),
                     ),
-                    _MetricCard(
-                      icon: Icons.trending_up_rounded,
-                      label: 'Month Profit',
-                      value: _signedMoney(totals.monthProfit),
-                      color: appleBlue,
+                    _DashboardCardReveal(
+                      animation: _revealController,
+                      order: 3,
+                      child: _MetricCard(
+                        icon: Icons.trending_up_rounded,
+                        label: 'Month Profit',
+                        value: _signedMoney(totals.monthProfit),
+                        color: appleBlue,
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 16),
-                _Pressable(
-                  onTap: () => Navigator.of(context)
-                      .push(_premiumRoute<void>(PartyLedgerScreen(sync: sync))),
-                  borderRadius: BorderRadius.circular(24),
-                  feedbackColor: const Color(0xFF9333EA),
-                  child: const _GlassCard(
-                    shadowColor: Color(0xFF9333EA),
-                    child: Row(
-                      children: <Widget>[
-                        _LedgerIcon(
-                          icon: Icons.contact_page_rounded,
-                          color: Color(0xFF9333EA),
-                        ),
-                        SizedBox(width: 15),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              Text(
-                                'Party Ledger',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              SizedBox(height: 3),
-                              Text(
-                                'COMBINED MILK & CREDIT',
-                                style: TextStyle(
-                                  color: systemGray,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: .8,
-                                ),
-                              ),
-                            ],
+                _DashboardCardReveal(
+                  animation: _revealController,
+                  order: 4,
+                  child: _Pressable(
+                    onTap: () => Navigator.of(
+                      context,
+                    ).push(_premiumRoute<void>(PartyLedgerScreen(sync: sync))),
+                    borderRadius: BorderRadius.circular(24),
+                    feedbackColor: const Color(0xFF9333EA),
+                    child: const _GlassCard(
+                      shadowColor: Color(0xFF9333EA),
+                      child: Row(
+                        children: <Widget>[
+                          _LedgerIcon(
+                            icon: Icons.contact_page_rounded,
+                            color: Color(0xFF9333EA),
                           ),
-                        ),
-                        Icon(Icons.chevron_right_rounded, color: systemGray),
-                      ],
+                          SizedBox(width: 15),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  'Party Ledger',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                SizedBox(height: 3),
+                                Text(
+                                  'COMBINED MILK & CREDIT',
+                                  style: TextStyle(
+                                    color: systemGray,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: .8,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(Icons.chevron_right_rounded, color: systemGray),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -3347,6 +3517,41 @@ class DashboardScreen extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _DashboardCardReveal extends StatelessWidget {
+  const _DashboardCardReveal({
+    required this.animation,
+    required this.order,
+    required this.child,
+  });
+
+  final Animation<double> animation;
+  final int order;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final double start = math.min(order * .06, .30).toDouble();
+    final Animation<double> reveal = CurvedAnimation(
+      parent: animation,
+      curve: Interval(
+        start,
+        math.min(start + .58, 1.0),
+        curve: UIConstants.motionOut,
+      ),
+    );
+    return FadeTransition(
+      opacity: reveal,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, .045),
+          end: Offset.zero,
+        ).animate(reveal),
+        child: RepaintBoundary(child: child),
+      ),
     );
   }
 }
@@ -4146,11 +4351,22 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
           ),
         );
       }
+      final List<Map<String, dynamic>> allRecords = _rows(profile['records']);
+      final List<DateTime> availablePeriods = LedgerMath.recordPeriods(
+        allRecords,
+      );
+      final DateTime? selectedPeriod = LedgerMath.resolveRecordPeriod(
+        availablePeriods,
+        month: _month,
+        year: _year,
+      );
+      final int selectedMonth = selectedPeriod?.month ?? _month;
+      final int selectedYear = selectedPeriod?.year ?? _year;
       final List<Map<String, dynamic>> records =
-          _rows(profile['records'])
+          allRecords
               .where(
                 (Map<String, dynamic> row) =>
-                    LedgerMath.inMonth(row, _month, _year),
+                    LedgerMath.inMonth(row, selectedMonth, selectedYear),
               )
               .toList()
             ..sort(
@@ -4159,8 +4375,8 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
             );
       final MilkTotals totals = LedgerMath.milkTotals(
         profile,
-        month: _month,
-        year: _year,
+        month: selectedMonth,
+        year: selectedYear,
       );
       final Color color = _tone(totals.netAmount);
       return Scaffold(
@@ -4184,8 +4400,9 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
                 padding: UIConstants.screenPadding,
                 children: <Widget>[
                   _MonthYearPicker(
-                    month: _month,
-                    year: _year,
+                    month: selectedMonth,
+                    year: selectedYear,
+                    availablePeriods: availablePeriods,
                     onChanged: (int month, int year) => setState(() {
                       _month = month;
                       _year = year;
@@ -4247,7 +4464,7 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
                   if (records.isEmpty)
                     const _EmptyState(
                       Icons.water_drop_outlined,
-                      'No entries for this month',
+                      'No milk entries yet',
                     )
                   else
                     _MilkRecordsTable(
@@ -5455,11 +5672,22 @@ class _SalaryDetailScreenState extends State<SalaryDetailScreen> {
         );
       }
       final Map<String, dynamic> profile = _map(database[widget.personName]);
+      final List<Map<String, dynamic>> allRecords = _rows(profile['records']);
+      final List<DateTime> availablePeriods = LedgerMath.recordPeriods(
+        allRecords,
+      );
+      final DateTime? selectedPeriod = LedgerMath.resolveRecordPeriod(
+        availablePeriods,
+        month: _month,
+        year: _year,
+      );
+      final int selectedMonth = selectedPeriod?.month ?? _month;
+      final int selectedYear = selectedPeriod?.year ?? _year;
       final List<Map<String, dynamic>> records =
-          _rows(profile['records'])
+          allRecords
               .where(
                 (Map<String, dynamic> row) =>
-                    LedgerMath.inMonth(row, _month, _year),
+                    LedgerMath.inMonth(row, selectedMonth, selectedYear),
               )
               .toList()
             ..sort(
@@ -5494,8 +5722,9 @@ class _SalaryDetailScreenState extends State<SalaryDetailScreen> {
                 padding: UIConstants.screenPadding,
                 children: <Widget>[
                   _MonthYearPicker(
-                    month: _month,
-                    year: _year,
+                    month: selectedMonth,
+                    year: selectedYear,
+                    availablePeriods: availablePeriods,
                     onChanged: (int month, int year) => setState(() {
                       _month = month;
                       _year = year;
@@ -5548,7 +5777,7 @@ class _SalaryDetailScreenState extends State<SalaryDetailScreen> {
                   if (records.isEmpty)
                     const _EmptyState(
                       Icons.currency_rupee_rounded,
-                      'No salary entries for this month',
+                      'No salary entries yet',
                     )
                   else
                     _LedgerTableCard(
@@ -5820,7 +6049,7 @@ class _CreditScreenState extends State<CreditScreen> {
   }
 }
 
-class CreditDetailScreen extends StatelessWidget {
+class CreditDetailScreen extends StatefulWidget {
   const CreditDetailScreen({
     required this.sync,
     required this.personName,
@@ -5830,14 +6059,22 @@ class CreditDetailScreen extends StatelessWidget {
   final LedgerSyncService sync;
   final String personName;
 
-  Future<void> _addEntry(BuildContext context) async {
+  @override
+  State<CreditDetailScreen> createState() => _CreditDetailScreenState();
+}
+
+class _CreditDetailScreenState extends State<CreditDetailScreen> {
+  int _month = DateTime.now().month;
+  int _year = DateTime.now().year;
+
+  Future<void> _addEntry() async {
     final TextEditingController date = TextEditingController(text: _today());
     final TextEditingController amount = TextEditingController();
     final String? type = await _openSheet<String>(
       context,
       Builder(
         builder: (BuildContext sheetContext) => _SheetFrame(
-          title: '$personName Credit Entry',
+          title: '${widget.personName} Credit Entry',
           children: <Widget>[
             _DateField(controller: date),
             const SizedBox(height: 12),
@@ -5889,7 +6126,7 @@ class CreditDetailScreen extends StatelessWidget {
         ),
       ),
     );
-    if (type == null || !context.mounted) {
+    if (type == null || !mounted) {
       date.dispose();
       amount.dispose();
       return;
@@ -5905,18 +6142,25 @@ class CreditDetailScreen extends StatelessWidget {
     final String id = _newId('udh');
     await _runMutation(
       context,
-      () => sync.write('udharDB/$id', <String, dynamic>{
+      () => widget.sync.write('udharDB/$id', <String, dynamic>{
         'id': id,
         'date': entryDate,
-        'name': personName,
+        'name': widget.personName,
         'amount': entryAmount,
         'type': type,
       }, reason: 'credit-entry-save'),
       type == 'credit' ? 'Given entry saved!' : 'Taken entry saved!',
     );
+    final DateTime parsed = LedgerMath.strictDate(entryDate)!;
+    if (mounted) {
+      setState(() {
+        _month = parsed.month;
+        _year = parsed.year;
+      });
+    }
   }
 
-  Future<void> _deleteEntry(BuildContext context, String id) async {
+  Future<void> _deleteEntry(String id) async {
     if (!await _confirm(
       context,
       'Delete credit entry?',
@@ -5924,49 +6168,64 @@ class CreditDetailScreen extends StatelessWidget {
     )) {
       return;
     }
-    if (!context.mounted) return;
+    if (!mounted) return;
     await _runMutation(
       context,
-      () => sync.write('udharDB/$id', null, reason: 'credit-entry-delete'),
+      () =>
+          widget.sync.write('udharDB/$id', null, reason: 'credit-entry-delete'),
       'Entry deleted!',
     );
   }
 
-  Future<void> _deleteProfile(
-    BuildContext context,
-    List<Map<String, dynamic>> records,
-  ) async {
+  Future<void> _deleteProfile(List<Map<String, dynamic>> records) async {
     if (!await _confirm(
       context,
-      'Delete $personName?',
+      'Delete ${widget.personName}?',
       'Every credit entry for this person will be permanently deleted.',
     )) {
       return;
     }
-    if (!context.mounted) return;
+    if (!mounted) return;
     final Map<String, dynamic> deletes = <String, dynamic>{
       for (final Map<String, dynamic> row in records)
         'udharDB/${row['id']}': null,
     };
     try {
       if (deletes.isNotEmpty) {
-        await sync.writeBatch(deletes, reason: 'credit-profile-delete');
+        await widget.sync.writeBatch(deletes, reason: 'credit-profile-delete');
       }
-      if (context.mounted) Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
     } catch (error) {
-      if (context.mounted) _toast(context, '$error', error: true);
+      if (mounted) _toast(context, '$error', error: true);
     }
   }
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: sync,
+    animation: widget.sync,
     builder: (BuildContext context, Widget? child) {
-      final List<Map<String, dynamic>> records =
-          _rows(sync.state['udharDB'])
+      final List<Map<String, dynamic>> allRecords =
+          _rows(widget.sync.state['udharDB'])
               .where(
                 (Map<String, dynamic> row) =>
-                    LedgerMath.cleanName(row['name']) == personName,
+                    LedgerMath.cleanName(row['name']) == widget.personName,
+              )
+              .toList();
+      final List<DateTime> availablePeriods = LedgerMath.recordPeriods(
+        allRecords,
+      );
+      final DateTime? selectedPeriod = LedgerMath.resolveRecordPeriod(
+        availablePeriods,
+        month: _month,
+        year: _year,
+      );
+      final int selectedMonth = selectedPeriod?.month ?? _month;
+      final int selectedYear = selectedPeriod?.year ?? _year;
+      final List<Map<String, dynamic>> records =
+          allRecords
+              .where(
+                (Map<String, dynamic> row) =>
+                    LedgerMath.inMonth(row, selectedMonth, selectedYear),
               )
               .toList()
             ..sort(
@@ -5984,13 +6243,13 @@ class CreditDetailScreen extends StatelessWidget {
           children: <Widget>[
             _ScreenHeader(
               leading: const _BackCircle(),
-              title: personName,
+              title: widget.personName,
               color: color,
               actions: <Widget>[
                 _DeleteActionButton(
                   padding: const EdgeInsets.only(left: 6),
                   semanticLabel: 'Delete credit profile',
-                  onTap: () => unawaited(_deleteProfile(context, records)),
+                  onTap: () => unawaited(_deleteProfile(allRecords)),
                 ),
               ],
             ),
@@ -5999,6 +6258,16 @@ class CreditDetailScreen extends StatelessWidget {
                 physics: const BouncingScrollPhysics(),
                 padding: UIConstants.screenPadding,
                 children: <Widget>[
+                  _MonthYearPicker(
+                    month: selectedMonth,
+                    year: selectedYear,
+                    availablePeriods: availablePeriods,
+                    onChanged: (int month, int year) => setState(() {
+                      _month = month;
+                      _year = year;
+                    }),
+                  ),
+                  const SizedBox(height: 16),
                   _AmountHero(
                     label: net > 0
                         ? 'To Receive'
@@ -6010,7 +6279,7 @@ class CreditDetailScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 24),
                   _SectionTitle(
-                    'All Entries',
+                    'Credit Entries',
                     color: appleBlue,
                     actions: <Widget>[
                       _SoftShareButton(
@@ -6019,7 +6288,7 @@ class CreditDetailScreen extends StatelessWidget {
                         color: appleBlue,
                         onTap: () => unawaited(
                           _ExportService.sharePdf(
-                            '$personName Credit Ledger',
+                            '${widget.personName} Credit Ledger',
                             <String>['Date', 'Type', 'Amount'],
                             records
                                 .map(
@@ -6040,14 +6309,14 @@ class CreditDetailScreen extends StatelessWidget {
                         label: 'Add',
                         icon: Icons.add_rounded,
                         color: appleGreen,
-                        onTap: () => unawaited(_addEntry(context)),
+                        onTap: () => unawaited(_addEntry()),
                       ),
                     ],
                   ),
                   if (records.isEmpty)
                     const _EmptyState(
                       Icons.account_balance_wallet_outlined,
-                      'No entries found',
+                      'No credit entries yet',
                     )
                   else
                     _LedgerTableCard(
@@ -6069,7 +6338,7 @@ class CreditDetailScreen extends StatelessWidget {
                             ),
                           ],
                           onDelete: () =>
-                              unawaited(_deleteEntry(context, '${row['id']}')),
+                              unawaited(_deleteEntry('${row['id']}')),
                           semanticLabel:
                               'Delete ${_displayDate(row['date'])} credit entry',
                         );
@@ -6211,7 +6480,6 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     for (final Map<String, dynamic> row in _rows(
       widget.sync.state['expenseDB'],
     )) {
-      if (!LedgerMath.inMonth(row, now.month, now.year)) continue;
       final String name = _cleanKey(row['category']).isEmpty
           ? 'Other'
           : _cleanKey(row['category']);
@@ -6219,7 +6487,9 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
         name,
         () => _ExpenseGroup(name),
       );
-      group.total += LedgerMath.number(row['amount']).abs();
+      if (LedgerMath.inMonth(row, now.month, now.year)) {
+        group.total += LedgerMath.number(row['amount']).abs();
+      }
       final String rowDate = '${row['date'] ?? ''}';
       if (rowDate.compareTo(group.lastDate) > 0) group.lastDate = rowDate;
     }
@@ -6273,10 +6543,12 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                 ...groups.map(
                   (_ExpenseGroup group) => _ListCard(
                     title: group.category,
-                    subtitle: 'Last entry ${_displayDate(group.lastDate)}',
+                    subtitle: group.total > 0
+                        ? 'This month • Last ${_displayDate(group.lastDate)}'
+                        : 'No expense this month • Last ${_displayDate(group.lastDate)}',
                     icon: premiumExpenseIcon,
                     color: semanticRed,
-                    trailing: '-${_money(group.total)}',
+                    trailing: group.total > 0 ? '-${_money(group.total)}' : '—',
                     onTap: () => Navigator.of(context).push(
                       _premiumRoute<void>(
                         ExpenseDetailScreen(
@@ -6435,11 +6707,21 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                     widget.category.toLowerCase(),
               )
               .toList();
+      final List<DateTime> availablePeriods = LedgerMath.recordPeriods(
+        allRecords,
+      );
+      final DateTime? selectedPeriod = LedgerMath.resolveRecordPeriod(
+        availablePeriods,
+        month: _month,
+        year: _year,
+      );
+      final int selectedMonth = selectedPeriod?.month ?? _month;
+      final int selectedYear = selectedPeriod?.year ?? _year;
       final List<Map<String, dynamic>> records =
           allRecords
               .where(
                 (Map<String, dynamic> row) =>
-                    LedgerMath.inMonth(row, _month, _year),
+                    LedgerMath.inMonth(row, selectedMonth, selectedYear),
               )
               .toList()
             ..sort(
@@ -6473,8 +6755,9 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                 padding: UIConstants.screenPadding,
                 children: <Widget>[
                   _MonthYearPicker(
-                    month: _month,
-                    year: _year,
+                    month: selectedMonth,
+                    year: selectedYear,
+                    availablePeriods: availablePeriods,
                     onChanged: (int month, int year) => setState(() {
                       _month = month;
                       _year = year;
@@ -6522,7 +6805,7 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                   if (records.isEmpty)
                     const _EmptyState(
                       premiumExpenseIcon,
-                      'No expenses for this month',
+                      'No expense entries yet',
                     )
                   else
                     _LedgerTableCard(
@@ -8624,8 +8907,7 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
   }
 
   Future<bool> _confirmAiActions(AiActionPlan plan) async {
-    final bool reduceMotion =
-        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final bool reduceMotion = AppMotion.reduce(context);
     final List<String> summaryParts = <String>[
       if (plan.createCount > 0) '${plan.createCount} जुड़ेंगे',
       if (plan.updateCount > 0) '${plan.updateCount} बदलेंगे',

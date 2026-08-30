@@ -9,7 +9,9 @@ void main() {
     // Multi-frequency depth physics: contact, key, ambient and themed light.
     expect(source, contains('spreadRadius: -1.25'));
     expect(source, contains('blurRadius: 52'));
-    expect(source, contains('withAlpha(dark ? 34 : 9)'));
+    expect(source, contains('withAlpha(dark ? 76 : 22)'));
+    expect(source, contains('withAlpha(dark ? 56 : 18)'));
+    expect(source, contains('withAlpha(dark ? 40 : 12)'));
     expect(source, contains("const Color(0xFF172033)"));
     expect(source, contains('color.computeLuminance()'));
     expect(source, contains('static List<BoxShadow> pressGlow('));
@@ -20,19 +22,20 @@ void main() {
     expect(source, contains('blurRadius: strong ? 28 : 24'));
     expect(source, contains('spreadRadius: strong ? -7 : -6'));
 
+    // The app mark is the website's exact Font Awesome 6.6 solid leaf path.
+    expect(source, contains('class _FontAwesomeLeafPainter'));
+    expect(source, contains('..moveTo(272, 96)'));
+    expect(source, contains('..cubicTo(455.9, 72.1, 418.7, 96, 376, 96)'));
+    expect(source, contains('dimension: size * .52'));
+    expect(source, isNot(contains('Icons.eco_rounded')));
+
     // Glass uses one continuous clipped face and one foreground edge, avoiding
     // short highlight strips that visually chop rounded corners.
     expect(source, contains('Colors.white.withAlpha(dark ? 15 : 31)'));
     expect(source, contains('Colors.black.withAlpha(dark ? 22 : 7)'));
     expect(source, contains('position: DecorationPosition.foreground'));
-    expect(
-      source,
-      isNot(contains('Colors.white.withAlpha(dark ? 82 : 198)')),
-    );
-    expect(
-      source,
-      isNot(contains('Colors.black.withAlpha(dark ? 58 : 14)')),
-    );
+    expect(source, isNot(contains('Colors.white.withAlpha(dark ? 82 : 198)')));
+    expect(source, isNot(contains('Colors.black.withAlpha(dark ? 58 : 14)')));
     expect(
       RegExp(r'GridView\.count\([\s\S]*?clipBehavior: Clip\.none,')
           .allMatches(source),
@@ -68,7 +71,10 @@ void main() {
     expect(source, isNot(contains('class _BottomNavGlyphPainter')));
     expect(source, contains('size: micro ? 19 : 21.5'));
     expect(source, contains('const IconData premiumDeleteIcon'));
-    expect(source, contains('class _DeleteActionButton extends StatelessWidget'));
+    expect(
+      source,
+      contains('class _DeleteActionButton extends StatelessWidget'),
+    );
     expect(
       RegExp(r'Icons\.delete_outline_rounded').allMatches(source),
       hasLength(1),
@@ -98,10 +104,39 @@ void main() {
     expect(source, contains('..rotateY(_touchAlignment.x * cardTilt)'));
     expect(source, contains('gradient: RadialGradient('));
     expect(source, contains('HapticFeedback.lightImpact();'));
-    expect(source, contains('MediaQuery.of(context).disableAnimations'));
+    expect(source, contains('abstract final class AppMotion'));
+    expect(
+      source,
+      contains('MediaQuery.maybeDisableAnimationsOf(context) ?? false'),
+    );
+    expect(
+      source,
+      contains('!reduce(context) && TickerMode.valuesOf(context).enabled'),
+    );
+    expect(source, isNot(contains('.disableAnimations ?? false')));
+    expect(source, contains('oldWidget.onTap != null && widget.onTap == null'));
     expect(source, contains('this.feedbackColor'));
     expect(source, contains('feedbackColor: color'));
     expect(source, contains('feedbackColor: diaryOrange'));
+
+    // Dashboard cards reveal once with a short, direction-neutral stagger.
+    // Data-driven list rows deliberately avoid repeated decorative motion.
+    expect(source, contains('static const Duration dashboardReveal'));
+    expect(source, contains('Duration(milliseconds: 520)'));
+    expect(source, contains('class DashboardScreen extends StatefulWidget'));
+    expect(
+      source,
+      contains('class _DashboardCardReveal extends StatelessWidget'),
+    );
+    expect(
+      source,
+      contains('final double start = math.min(order * .06, .30).toDouble()'),
+    );
+    expect(source, contains('begin: const Offset(0, .045)'));
+    expect(source, contains('child: RepaintBoundary(child: child)'));
+    expect(source, contains('_revealController.value = 1'));
+    expect(source, contains('WidgetsBinding.instance.addPostFrameCallback'));
+    expect(source, contains('_revealScheduled = false'));
 
     // The dashboard AI entry reads as a real, labeled premium control.
     expect(source, contains('class _AiHubButton extends StatelessWidget'));
@@ -117,10 +152,12 @@ void main() {
     // Cross-system motion keeps auth handoffs calm and all route motion optional.
     expect(source, contains('class _RootStage extends StatelessWidget'));
     expect(
-        source, contains('FadeTransition(opacity: animation, child: child)'));
+      source,
+      contains('FadeTransition(opacity: animation, child: child)'),
+    );
     expect(
       source,
-      contains('MediaQuery.maybeOf(context)?.disableAnimations ?? false'),
+      contains('final bool reduceMotion = AppMotion.reduce(context)'),
     );
 
     // Sheets, dialogs and toasts use explicit native AnimationStyle timings.
