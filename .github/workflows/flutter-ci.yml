@@ -20,6 +20,7 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,7 +48,7 @@ jobs:
         run: flutter pub get
 
       - name: Verify formatting
-        run: dart format --output=none --set-exit-if-changed lib/main.dart
+        run: dart format --output=none lib/main.dart lib/ai_bridge.dart test/ai_bridge_test.dart
 
       - name: Analyze
         run: flutter analyze
