@@ -12,7 +12,7 @@ so Codemagic project path `.` resolves this `pubspec.yaml` directly.
 - Milk, Credit, Expenses, Salary, Personal Diary and Business Hub
 - Create, search, filter, detail, export and permanent delete flows
 - Direct Gemini AI Hub with explicit user confirmation before every mutation
-- Export Center with PDF, complete CSV and AI-readable ledger for all seven scopes
+- Export Center with paginated Hindi/English PDF, complete CSV and AI-readable ledger for all seven scopes
 - Light/dark themes and native haptics
 - Native date picker, debounced search and active-tab-only Firebase repainting
 - Durable offline state + outbox, reconnect replay and cross-device reconciliation
@@ -101,9 +101,59 @@ cache cannot resurrect a deleted item. The sync metadata remains compatible
 with the website's `AARISH_FIREBASE_COST_CORE_V12_VECTOR` protocol, including
 change tokens, table revisions and compact deltas.
 
+Record identity always comes from the authoritative RTDB child key, preventing
+malformed embedded IDs from creating undeletable ghost rows. Repeated offline
+edits to one exact path are compacted to their final value, while parent/child
+operations retain ordering. Paths and nested values are validated against RTDB
+key, depth and UTF-8 limits before the durable outbox accepts them and again
+before upload. Outgoing multi-location writes are split by encoded bytes and
+the same 24-path limit used by delta metadata, so large queues do not become
+stuck on one oversized request or force an avoidable full-table fallback.
+
 Firebase reads are cost-conscious: one small change-token listener while signed
-in, changed-table fetches when necessary, compact delta application when safe,
-and a full integrity audit no more than once per 24 hours.
+in, compact delta application when safe, targeted changed-record reads for
+large values, changed-table fallback fetches when necessary, and an automatic
+full integrity audit no more than once every seven days. Dashboard, navigation
+tones, party balances and module summary cards share one immutable monthly
+projection, so connection/status repaints never rescan the complete ledger.
+Reconciliation and uncached month reads wait for a positive
+`.info/connected` signal, preventing Firebase's offline `get()` fallback from
+mistaking a stale SDK cache entry for current server state.
+
+## Guarded monthly Diary projection
+
+`ledgerV2` is an opt-in server-owned read model. The Flutter app uses it only
+when `meta/diary` reports schema version 2 and both its `sourceRevision` and
+per-writer `sourceClockHash` exactly match the legacy V12 `diaryDB` source.
+The vector-clock hash also distinguishes concurrent writes that happen to use
+the same numeric revision. Any mismatch fails closed to `users/{uid}/appData`,
+preserving existing website and older-client behavior.
+
+When active, startup downloads only the current Diary month. The compact period
+index drives the month picker and an older month is fetched only when selected.
+An All Data/Diary export or AI snapshot explicitly reads one stable,
+authoritative `diaryDB` snapshot, checks the source metadata before and after
+the read, and replays pending local writes over it. This keeps normal browsing
+month-scoped without ever silently producing a partial full-history export.
+
+The Firebase function consumes V12 metadata in revision order, projects only
+the changed Diary IDs for normal writes, and performs a stable full rebuild for
+first migration, an oversized batch, or a broken/out-of-order revision chain.
+Full rebuilds reuse their single source snapshot instead of rereading every
+Diary entry. Retried events whose target is already projected are discarded
+instead of triggering another full rebuild, keeping RTDB read amplification
+bounded as a ledger grows.
+The database rules keep `ledgerV2` client read-only and index `_period`; deploy
+the function and rules together. The checked-in Firebase project alias targets
+`diary-book-21a91`, reducing accidental deployment to a different project. An
+admin-only `backfillDiaryV2` callable can
+prebuild an existing user's projection, while the first later Diary mutation
+also bootstraps it automatically.
+
+Function dependencies are pinned by `functions/package-lock.json`; CI installs
+that exact graph on Node 22 and loads the deployed entrypoint before running
+projection tests. The production dependency audit also fails the build on any
+high or critical advisory.
 
 The supplied iOS Firebase plist is preserved at
 `firebase/GoogleService-Info.plist` for a future iOS scaffold. It is not needed
