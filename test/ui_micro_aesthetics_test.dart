@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('premium micro-aesthetics remain surgical and semantic', () {
     final String source = File('lib/main.dart').readAsStringSync();
+    final String manifest = File('pubspec.yaml').readAsStringSync();
 
     // Multi-frequency depth physics: contact, key, ambient and themed light.
     expect(source, contains('spreadRadius: -1.25'));
@@ -160,25 +161,31 @@ void main() {
       contains('final bool reduceMotion = AppMotion.reduce(context)'),
     );
 
-    // Full-screen navigation must move an opaque branded surface. Applying a
-    // FadeTransition to transparent Scaffolds composites both pages and causes
-    // the visible text/card ghosting that this guard prevents.
+    // Frequent card navigation is direct and compositing-friendly. The fully
+    // opaque destination canvas prevents ghosting while a four-percent content
+    // settle avoids a hard flash without zooming, bending, or bouncing cards.
+    expect(manifest, isNot(contains('animations:')));
+    expect(source, isNot(contains('OpenContainer')));
+    expect(source, isNot(contains('CupertinoPageTransition')));
+    expect(source, isNot(contains('_premiumRoute')));
     expect(
       source,
       contains(
-        "import 'package:flutter/cupertino.dart' show CupertinoPageTransition;",
+        'static const Duration directRouteIn = Duration(milliseconds: 210)',
       ),
     );
-    expect(source, contains('Widget _opaquePageTransition({'));
     expect(
       source,
-      contains('final Widget surface = _AmbientBackground(child: child);'),
+      contains(
+        'static const Duration directRouteOut = Duration(milliseconds: 210)',
+      ),
     );
+
     final int transitionStart = source.indexOf(
-      'Widget _opaquePageTransition({',
+      'class _OpaqueContentTransitionsBuilder',
     );
     final int transitionEnd = source.indexOf(
-      'class _LaunchScreen',
+      'PageRoute<T> _directRoute<T>',
       transitionStart,
     );
     expect(transitionStart, greaterThanOrEqualTo(0));
@@ -187,22 +194,97 @@ void main() {
       transitionStart,
       transitionEnd,
     );
-    expect(transitionSource, contains('CupertinoPageTransition('));
-    expect(transitionSource, contains('linearTransition: false'));
-    expect(transitionSource, contains('child: surface'));
-    expect(transitionSource, isNot(contains('FadeTransition(')));
-
-    final int routeStart = source.indexOf(
-      'PageRoute<T> _premiumRoute<T>(Widget child)',
+    expect(
+      transitionSource,
+      contains('final Widget surface = _AmbientBackground(child: child);'),
     );
-    final int routeEnd = source.indexOf('class _AiHubButton', routeStart);
-    expect(routeStart, greaterThanOrEqualTo(0));
-    expect(routeEnd, greaterThan(routeStart));
-    final String routeSource = source.substring(routeStart, routeEnd);
-    expect(routeSource, contains('opaque: true'));
-    expect(routeSource, contains('allowSnapshotting: true'));
-    expect(routeSource, contains('_opaquePageTransition('));
-    expect(routeSource, isNot(contains('FadeTransition(')));
+    expect(transitionSource, contains('return _AmbientBackground('));
+    expect(
+      transitionSource,
+      contains('FadeTransition(opacity: contentOpacity, child: child)'),
+    );
+    expect(transitionSource, isNot(contains('ScaleTransition(')));
+
+    final int directStart = source.indexOf('PageRoute<T> _directRoute<T>');
+    final int directEnd = source.indexOf('class _LaunchScreen', directStart);
+    expect(directStart, greaterThanOrEqualTo(0));
+    expect(directEnd, greaterThan(directStart));
+    final String directSource = source.substring(directStart, directEnd);
+    expect(directSource, contains('PageRouteBuilder<T>('));
+    expect(directSource, contains('opaque: true'));
+    expect(directSource, contains('allowSnapshotting: true'));
+    expect(directSource, contains('? Duration.zero'));
+    expect(directSource, contains('class _DirectRouteTransition'));
+    expect(directSource, contains('Tween<double>(begin: .96, end: 1)'));
+    expect(directSource, contains('child: _AmbientBackground('));
+    expect(directSource, contains('FadeTransition('));
+    expect(directSource, contains('RepaintBoundary(child: child)'));
+    expect(directSource, contains('class _FastRouteLauncher'));
+    expect(directSource, contains('bool _routeOpen = false'));
+    expect(directSource, contains('if (_routeOpen) return'));
+    expect(directSource, isNot(contains('RadialGradient(')));
+    expect(directSource, isNot(contains('Transform.translate(')));
+    expect(directSource, isNot(contains('Transform.scale(')));
+    expect(directSource, isNot(contains('sourceRadius')));
+    expect(directSource, isNot(contains('localToGlobal(')));
+    expect(directSource, isNot(contains('BackdropFilter(')));
+    expect(directSource, isNot(contains('ImageFilter.blur(')));
+    expect(source, contains('animatePress: destinationBuilder == null'));
+    expect(
+      RegExp(r'animatePress:\s*false').allMatches(source).length,
+      greaterThanOrEqualTo(3),
+    );
+
+    expect(
+      RegExp(r'destinationBuilder:\s*\(_\)\s*=>').allMatches(source),
+      hasLength(8),
+    );
+    for (final String destination in <String>[
+      'AiHubScreen(sync: sync)',
+      'PartyLedgerScreen(sync: sync)',
+      'MilkDetailScreen(sync: widget.sync, customerName: name)',
+      'SalaryDetailScreen(sync: widget.sync, personName: name)',
+      'CreditDetailScreen(',
+      'ExpenseDetailScreen(',
+      'DiaryDetailScreen(',
+      'BusinessDetailScreen(',
+    ]) {
+      expect(source, contains(destination));
+    }
+
+    // Export Center uses one adaptive visual language instead of rainbow
+    // report cards. Labels stay single-line and scale down as a complete unit,
+    // so narrow devices and larger text settings never fade off their suffix.
+    final int exportStart = source.indexOf('class _ExportScopeSpec');
+    final int exportEnd = source.indexOf('class _ExportDataset', exportStart);
+    expect(exportStart, greaterThanOrEqualTo(0));
+    expect(exportEnd, greaterThan(exportStart));
+    final String exportSource = source.substring(exportStart, exportEnd);
+    expect(exportSource, contains('class _ExportCenterPalette'));
+    expect(exportSource, contains('static const _ExportCenterPalette _dark'));
+    expect(exportSource, contains('static const _ExportCenterPalette _light'));
+    expect(exportSource, contains('class _ExportButtonContent'));
+    expect(exportSource, contains('ExcludeSemantics('));
+    expect(exportSource, contains('FittedBox('));
+    expect(exportSource, contains('fit: BoxFit.scaleDown'));
+    expect(exportSource, contains('maxLines: 1'));
+    expect(exportSource, contains('softWrap: false'));
+    expect(exportSource, isNot(contains('TextOverflow.fade')));
+    expect(exportSource, isNot(contains('_scopeGradient')));
+    expect(exportSource, isNot(contains('required this.color')));
+    expect(exportSource, isNot(contains('appleRed')));
+    expect(exportSource, isNot(contains('appleOrange')));
+    expect(exportSource, isNot(contains('salaryGreen')));
+    for (final String label in <String>[
+      'Premium PDF',
+      'Milk Records',
+      'Credit Ledger',
+      'Personal Diary',
+    ]) {
+      expect(exportSource, contains("'$label'"));
+    }
+    expect(source, contains('selected: widget.selected'));
+    expect(exportSource, contains('selected: selected'));
 
     // Sheets, dialogs and toasts use explicit native AnimationStyle timings.
     expect(source, contains('sheetAnimationStyle: reduceMotion'));

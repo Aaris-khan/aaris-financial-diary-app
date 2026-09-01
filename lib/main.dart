@@ -5,7 +5,6 @@ import 'dart:ui' as ui;
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/cupertino.dart' show CupertinoPageTransition;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
@@ -76,6 +75,8 @@ abstract final class UIConstants {
   static const Duration dashboardReveal = Duration(milliseconds: 520);
   static const Duration routeIn = Duration(milliseconds: 280);
   static const Duration routeOut = Duration(milliseconds: 220);
+  static const Duration directRouteIn = Duration(milliseconds: 210);
+  static const Duration directRouteOut = Duration(milliseconds: 210);
 
   // A lightly under-damped release: quick enough for repeated ledger work,
   // with one restrained rebound instead of a decorative wobble.
@@ -526,12 +527,12 @@ ThemeData _theme(Brightness brightness) {
     ),
     pageTransitionsTheme: const PageTransitionsTheme(
       builders: <TargetPlatform, PageTransitionsBuilder>{
-        TargetPlatform.android: _PremiumTransitionsBuilder(),
-        TargetPlatform.iOS: _PremiumTransitionsBuilder(),
-        TargetPlatform.macOS: _PremiumTransitionsBuilder(),
-        TargetPlatform.windows: _PremiumTransitionsBuilder(),
-        TargetPlatform.linux: _PremiumTransitionsBuilder(),
-        TargetPlatform.fuchsia: _PremiumTransitionsBuilder(),
+        TargetPlatform.android: _OpaqueContentTransitionsBuilder(),
+        TargetPlatform.iOS: _OpaqueContentTransitionsBuilder(),
+        TargetPlatform.macOS: _OpaqueContentTransitionsBuilder(),
+        TargetPlatform.windows: _OpaqueContentTransitionsBuilder(),
+        TargetPlatform.linux: _OpaqueContentTransitionsBuilder(),
+        TargetPlatform.fuchsia: _OpaqueContentTransitionsBuilder(),
       },
     ),
   );
@@ -633,8 +634,14 @@ class _AmbientPainter extends CustomPainter {
       oldDelegate.dark != dark;
 }
 
-class _PremiumTransitionsBuilder extends PageTransitionsBuilder {
-  const _PremiumTransitionsBuilder();
+class _OpaqueContentTransitionsBuilder extends PageTransitionsBuilder {
+  const _OpaqueContentTransitionsBuilder();
+
+  @override
+  Duration get transitionDuration => UIConstants.directRouteIn;
+
+  @override
+  Duration get reverseTransitionDuration => UIConstants.directRouteOut;
 
   @override
   Widget buildTransitions<T>(
@@ -643,36 +650,112 @@ class _PremiumTransitionsBuilder extends PageTransitionsBuilder {
     Animation<double> animation,
     Animation<double> secondaryAnimation,
     Widget child,
-  ) => _opaquePageTransition(
-    context: context,
-    animation: animation,
-    secondaryAnimation: secondaryAnimation,
-    child: child,
-  );
+  ) {
+    // A route-local canvas stays fully opaque for the whole transition. Only
+    // the incoming content gets a near-instant opacity settle, so transparent
+    // Scaffolds can never blend two pages' text together.
+    final Widget surface = _AmbientBackground(child: child);
+    if (AppMotion.reduce(context)) return surface;
+    final Animation<double> contentOpacity = Tween<double>(begin: .96, end: 1)
+        .animate(
+          CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          ),
+        );
+    return _AmbientBackground(
+      child: FadeTransition(opacity: contentOpacity, child: child),
+    );
+  }
 }
 
-Widget _opaquePageTransition({
-  required BuildContext context,
-  required Animation<double> animation,
-  required Animation<double> secondaryAnimation,
-  required Widget child,
-}) {
-  // Every app Scaffold intentionally inherits a transparent background so the
-  // branded ambient canvas stays continuous. Give each full-screen route its
-  // own identical canvas during navigation; fading the transparent Scaffold
-  // would otherwise composite both routes' text and cards together.
-  final Widget surface = _AmbientBackground(child: child);
-  if (AppMotion.reduce(context)) return surface;
+PageRoute<T> _directRoute<T>({
+  required WidgetBuilder destinationBuilder,
+  required bool reduceMotion,
+}) => PageRouteBuilder<T>(
+  opaque: true,
+  allowSnapshotting: true,
+  transitionDuration: reduceMotion ? Duration.zero : UIConstants.directRouteIn,
+  reverseTransitionDuration: reduceMotion
+      ? Duration.zero
+      : UIConstants.directRouteOut,
+  pageBuilder: (
+    BuildContext context,
+    Animation<double> routeAnimation,
+    Animation<double> secondaryAnimation,
+  ) => destinationBuilder(context),
+  transitionsBuilder: (
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) => _DirectRouteTransition(animation: animation, child: child),
+);
 
-  // This Flutter-owned transition moves two solid pages as a compositor-layer
-  // curtain. It provides directional push/pop motion, restrained parallax and
-  // the separating edge shadow without ever fading one page through another.
-  return CupertinoPageTransition(
-    primaryRouteAnimation: animation,
-    secondaryRouteAnimation: secondaryAnimation,
-    linearTransition: false,
-    child: surface,
-  );
+class _DirectRouteTransition extends StatelessWidget {
+  const _DirectRouteTransition({required this.animation, required this.child});
+
+  final Animation<double> animation;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (AppMotion.reduce(context)) {
+      return _AmbientBackground(child: child);
+    }
+    final Animation<double> contentOpacity = Tween<double>(begin: .96, end: 1)
+        .animate(
+          CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          ),
+        );
+    return IgnorePointer(
+      ignoring: animation.status != AnimationStatus.completed,
+      child: _AmbientBackground(
+        child: FadeTransition(
+          opacity: contentOpacity,
+          child: RepaintBoundary(child: child),
+        ),
+      ),
+    );
+  }
+}
+
+class _FastRouteLauncher extends StatefulWidget {
+  const _FastRouteLauncher({
+    required this.sourceBuilder,
+    required this.destinationBuilder,
+  });
+
+  final Widget Function(VoidCallback openRoute) sourceBuilder;
+  final WidgetBuilder destinationBuilder;
+
+  @override
+  State<_FastRouteLauncher> createState() => _FastRouteLauncherState();
+}
+
+class _FastRouteLauncherState extends State<_FastRouteLauncher> {
+  bool _routeOpen = false;
+
+  void _open() {
+    if (_routeOpen) return;
+    _routeOpen = true;
+    final NavigatorState navigator = Navigator.of(context);
+    final PageRoute<Object?> route = _directRoute<Object?>(
+      destinationBuilder: widget.destinationBuilder,
+      reduceMotion: AppMotion.reduce(context),
+    );
+    unawaited(
+      navigator.push<Object?>(route).whenComplete(() => _routeOpen = false),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      RepaintBoundary(child: widget.sourceBuilder(_open));
 }
 
 class _LaunchScreen extends StatelessWidget {
@@ -1551,6 +1634,8 @@ class _Pressable extends StatefulWidget {
     this.borderRadius,
     this.feedbackColor,
     this.semanticLabel,
+    this.selected,
+    this.animatePress = true,
   });
 
   final Widget child;
@@ -1558,6 +1643,8 @@ class _Pressable extends StatefulWidget {
   final BorderRadius? borderRadius;
   final Color? feedbackColor;
   final String? semanticLabel;
+  final bool? selected;
+  final bool animatePress;
 
   @override
   State<_Pressable> createState() => _PressableState();
@@ -1603,7 +1690,7 @@ class _PressableState extends State<_Pressable>
   }
 
   void _press([TapDownDetails? details]) {
-    if (widget.onTap == null) return;
+    if (widget.onTap == null || !widget.animatePress) return;
     if (details != null) _captureTouch(details);
     _pressController.animateTo(
       1,
@@ -1613,7 +1700,7 @@ class _PressableState extends State<_Pressable>
   }
 
   void _release() {
-    if (widget.onTap == null) return;
+    if (widget.onTap == null || !widget.animatePress) return;
     final double releaseVelocity = _pressController.velocity
         .clamp(-2.5, 2.5)
         .toDouble();
@@ -1642,12 +1729,17 @@ class _PressableState extends State<_Pressable>
   Widget build(BuildContext context) => Semantics(
     button: true,
     label: widget.semanticLabel,
+    selected: widget.selected,
     onLongPress: widget.onTap == null ? null : _handleLongPress,
     child: GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTapDown: widget.onTap == null ? null : _press,
-      onTapCancel: widget.onTap == null ? null : _release,
-      onTapUp: widget.onTap == null ? null : (_) => _release(),
+      onTapDown: widget.onTap == null || !widget.animatePress ? null : _press,
+      onTapCancel: widget.onTap == null || !widget.animatePress
+          ? null
+          : _release,
+      onTapUp: widget.onTap == null || !widget.animatePress
+          ? null
+          : (_) => _release(),
       onLongPress: widget.onTap == null ? null : _handleLongPress,
       onLongPressEnd: widget.onTap == null ? null : (_) => _release(),
       onTap: widget.onTap == null
@@ -2583,26 +2675,31 @@ class _ListCard extends StatelessWidget {
     required this.subtitle,
     required this.icon,
     required this.color,
-    required this.onTap,
+    this.onTap,
+    this.destinationBuilder,
     this.trailing,
     this.onDelete,
     this.avatarText,
-  });
+  }) : assert(
+         (onTap == null) != (destinationBuilder == null),
+         'Provide either onTap or destinationBuilder.',
+       );
 
   final String title;
   final String subtitle;
   final IconData icon;
   final Color color;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final WidgetBuilder? destinationBuilder;
   final String? trailing;
   final VoidCallback? onDelete;
   final String? avatarText;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 12),
-    child: _Pressable(
-      onTap: onTap,
+  Widget build(BuildContext context) {
+    Widget buildCard(VoidCallback action) => _Pressable(
+      onTap: action,
+      animatePress: destinationBuilder == null,
       borderRadius: BorderRadius.circular(UIConstants.cardRadius),
       feedbackColor: color,
       child: _GlassCard(
@@ -2706,8 +2803,16 @@ class _ListCard extends StatelessWidget {
           ],
         ),
       ),
-    ),
-  );
+    );
+
+    final Widget card = destinationBuilder == null
+        ? buildCard(onTap!)
+        : _FastRouteLauncher(
+            destinationBuilder: destinationBuilder!,
+            sourceBuilder: buildCard,
+          );
+    return Padding(padding: const EdgeInsets.only(bottom: 12), child: card);
+  }
 }
 
 class _SectionTitle extends StatelessWidget {
@@ -3114,26 +3219,6 @@ List<Color> _moduleTabColors(LedgerProjection projection) => <Color>[
   appleBlue,
 ];
 
-PageRoute<T> _premiumRoute<T>(Widget child) => PageRouteBuilder<T>(
-  opaque: true,
-  allowSnapshotting: true,
-  transitionDuration: UIConstants.routeIn,
-  reverseTransitionDuration: UIConstants.routeOut,
-  pageBuilder: (_, __, ___) => child,
-  transitionsBuilder:
-      (
-        BuildContext context,
-        Animation<double> animation,
-        Animation<double> secondaryAnimation,
-        Widget child,
-      ) => _opaquePageTransition(
-        context: context,
-        animation: animation,
-        secondaryAnimation: secondaryAnimation,
-        child: child,
-      ),
-);
-
 class _AiHubButton extends StatelessWidget {
   const _AiHubButton({required this.onTap});
 
@@ -3145,6 +3230,7 @@ class _AiHubButton extends StatelessWidget {
     const BorderRadius radius = BorderRadius.all(Radius.circular(20));
     return _Pressable(
       onTap: onTap,
+      animatePress: false,
       semanticLabel: 'Open AI Hub',
       borderRadius: radius,
       child: Container(
@@ -3308,10 +3394,10 @@ class _DashboardScreenState extends State<DashboardScreen>
         _ScreenHeader(
           title: 'Dashboard',
           subtitle: 'AARISH DAIRY',
-          subtitleTrailing: _AiHubButton(
-            onTap: () =>
-                Navigator.of(context)
-                    .push(_premiumRoute<void>(AiHubScreen(sync: sync))),
+          subtitleTrailing: _FastRouteLauncher(
+            destinationBuilder: (_) => AiHubScreen(sync: sync),
+            sourceBuilder: (VoidCallback openRoute) =>
+                _AiHubButton(onTap: openRoute),
           ),
           actions: <Widget>[
             _CircleAction(
@@ -3412,47 +3498,52 @@ class _DashboardScreenState extends State<DashboardScreen>
                 _DashboardCardReveal(
                   animation: _revealController,
                   order: 4,
-                  child: _Pressable(
-                    onTap: () => Navigator.of(
-                      context,
-                    ).push(_premiumRoute<void>(PartyLedgerScreen(sync: sync))),
-                    borderRadius: BorderRadius.circular(24),
-                    feedbackColor: const Color(0xFF9333EA),
-                    child: const _GlassCard(
-                      shadowColor: Color(0xFF9333EA),
-                      child: Row(
-                        children: <Widget>[
-                          _LedgerIcon(
-                            icon: Icons.contact_page_rounded,
-                            color: Color(0xFF9333EA),
-                          ),
-                          SizedBox(width: 15),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: <Widget>[
-                                Text(
-                                  'Party Ledger',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                                SizedBox(height: 3),
-                                Text(
-                                  'COMBINED MILK & CREDIT',
-                                  style: TextStyle(
-                                    color: systemGray,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: .8,
-                                  ),
-                                ),
-                              ],
+                  child: _FastRouteLauncher(
+                    destinationBuilder: (_) => PartyLedgerScreen(sync: sync),
+                    sourceBuilder: (VoidCallback openRoute) => _Pressable(
+                      onTap: openRoute,
+                      animatePress: false,
+                      borderRadius: BorderRadius.circular(24),
+                      feedbackColor: const Color(0xFF9333EA),
+                      child: const _GlassCard(
+                        shadowColor: Color(0xFF9333EA),
+                        child: Row(
+                          children: <Widget>[
+                            _LedgerIcon(
+                              icon: Icons.contact_page_rounded,
+                              color: Color(0xFF9333EA),
                             ),
-                          ),
-                          Icon(Icons.chevron_right_rounded, color: systemGray),
-                        ],
+                            SizedBox(width: 15),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Text(
+                                    'Party Ledger',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  SizedBox(height: 3),
+                                  Text(
+                                    'COMBINED MILK & CREDIT',
+                                    style: TextStyle(
+                                      color: systemGray,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: .8,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              color: systemGray,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -3945,11 +4036,8 @@ class _MilkScreenState extends State<MilkScreen> {
                         ? 'M'
                         : name.trim()[0].toUpperCase(),
                     trailing: _signedMoney(totals.netAmount),
-                    onTap: () => Navigator.of(context).push(
-                      _premiumRoute<void>(
+                    destinationBuilder: (_) =>
                         MilkDetailScreen(sync: widget.sync, customerName: name),
-                      ),
-                    ),
                   );
                 }),
             ],
@@ -5459,11 +5547,8 @@ class _SalaryScreenState extends State<SalaryScreen> {
                         ? 'S'
                         : name.trim()[0].toUpperCase(),
                     trailing: _signedMoney(net),
-                    onTap: () => Navigator.of(context).push(
-                      _premiumRoute<void>(
+                    destinationBuilder: (_) =>
                         SalaryDetailScreen(sync: widget.sync, personName: name),
-                      ),
-                    ),
                   );
                 }),
             ],
@@ -5947,13 +6032,9 @@ class _CreditScreenState extends State<CreditScreen> {
                         ? 'C'
                         : group.name.trim()[0].toUpperCase(),
                     trailing: _signedMoney(group.net),
-                    onTap: () => Navigator.of(context).push(
-                      _premiumRoute<void>(
-                        CreditDetailScreen(
-                          sync: widget.sync,
-                          personName: group.name,
-                        ),
-                      ),
+                    destinationBuilder: (_) => CreditDetailScreen(
+                      sync: widget.sync,
+                      personName: group.name,
                     ),
                   );
                 }),
@@ -6435,13 +6516,9 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                     trailing: group.monthTotal > 0
                         ? '-${_money(group.monthTotal)}'
                         : '—',
-                    onTap: () => Navigator.of(context).push(
-                      _premiumRoute<void>(
-                        ExpenseDetailScreen(
-                          sync: widget.sync,
-                          category: group.category,
-                        ),
-                      ),
+                    destinationBuilder: (_) => ExpenseDetailScreen(
+                      sync: widget.sync,
+                      category: group.category,
                     ),
                   ),
                 ),
@@ -7062,90 +7139,90 @@ class _DiaryScreenState extends State<DiaryScreen> {
         : _displayDate(entry['date']).toUpperCase();
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
-      child: _Pressable(
-        semanticLabel: needsDate
-            ? '$entryTitle, date needs correction'
-            : '$entryTitle, ${_displayDate(entry['date'])}',
-        onTap: () => Navigator.of(context).push(
-          _premiumRoute<void>(
-            DiaryDetailScreen(
-              sync: widget.sync,
-              entryId: '${entry['id']}',
-              onDateChanged: (DateTime date) {
-                if (!mounted) return;
-                setState(() {
-                  _month = date.month;
-                  _year = date.year;
-                });
-              },
-            ),
-          ),
+      child: _FastRouteLauncher(
+        destinationBuilder: (_) => DiaryDetailScreen(
+          sync: widget.sync,
+          entryId: '${entry['id']}',
+          onDateChanged: (DateTime date) {
+            if (!mounted) return;
+            setState(() {
+              _month = date.month;
+              _year = date.year;
+            });
+          },
         ),
-        borderRadius: BorderRadius.circular(23),
-        feedbackColor: diaryOrange,
-        child: _GlassCard(
-          borderRadius: 23,
-          accentColor: diaryOrange,
-          shadowColor: diaryOrange.withAlpha(72),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Text(
-                      entryTitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: diaryOrange,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
+        sourceBuilder: (VoidCallback openRoute) => _Pressable(
+          semanticLabel: needsDate
+              ? '$entryTitle, date needs correction'
+              : '$entryTitle, ${_displayDate(entry['date'])}',
+          onTap: openRoute,
+          animatePress: false,
+          borderRadius: BorderRadius.circular(23),
+          feedbackColor: diaryOrange,
+          child: _GlassCard(
+            borderRadius: 23,
+            accentColor: diaryOrange,
+            shadowColor: diaryOrange.withAlpha(72),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        entryTitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: diaryOrange,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
+                    const Icon(Icons.chevron_right_rounded, color: diaryOrange),
+                  ],
+                ),
+                if (preview.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Text(
+                    '“${preview.length > 90 ? '${preview.substring(0, 90)}…' : preview}”',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: diaryOrange,
+                      fontSize: 14,
+                      fontStyle: FontStyle.italic,
+                      height: 1.35,
+                    ),
                   ),
-                  const Icon(Icons.chevron_right_rounded, color: diaryOrange),
                 ],
-              ),
-              if (preview.isNotEmpty) ...<Widget>[
-                const SizedBox(height: 8),
-                Text(
-                  '“${preview.length > 90 ? '${preview.substring(0, 90)}…' : preview}”',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: diaryOrange,
-                    fontSize: 14,
-                    fontStyle: FontStyle.italic,
-                    height: 1.35,
-                  ),
+                const SizedBox(height: 12),
+                Row(
+                  children: <Widget>[
+                    if (needsDate) ...<Widget>[
+                      const Icon(
+                        Icons.event_busy_rounded,
+                        color: diaryOrange,
+                        size: 15,
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    Expanded(
+                      child: Text(
+                        dateLabel,
+                        style: const TextStyle(
+                          color: diaryOrange,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: .8,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
-              const SizedBox(height: 12),
-              Row(
-                children: <Widget>[
-                  if (needsDate) ...<Widget>[
-                    const Icon(
-                      Icons.event_busy_rounded,
-                      color: diaryOrange,
-                      size: 15,
-                    ),
-                    const SizedBox(width: 6),
-                  ],
-                  Expanded(
-                    child: Text(
-                      dateLabel,
-                      style: const TextStyle(
-                        color: diaryOrange,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: .8,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -7657,13 +7734,9 @@ class _BusinessScreenState extends State<BusinessScreen> {
                     icon: Icons.business_center_rounded,
                     color: appleBlue,
                     onDelete: () => unawaited(_deleteProject(name)),
-                    onTap: () => Navigator.of(context).push(
-                      _premiumRoute<void>(
-                        BusinessDetailScreen(
-                          sync: widget.sync,
-                          projectName: name,
-                        ),
-                      ),
+                    destinationBuilder: (_) => BusinessDetailScreen(
+                      sync: widget.sync,
+                      projectName: name,
                     ),
                   );
                 }),
@@ -9696,13 +9769,11 @@ class _ExportScopeSpec {
     required this.scope,
     required this.label,
     required this.icon,
-    required this.color,
   });
 
   final _ExportScope scope;
   final String label;
   final IconData icon;
-  final Color color;
 }
 
 const List<_ExportScopeSpec> _exportScopes = <_ExportScopeSpec>[
@@ -9710,45 +9781,192 @@ const List<_ExportScopeSpec> _exportScopes = <_ExportScopeSpec>[
     scope: _ExportScope.all,
     label: 'All Data',
     icon: Icons.layers_rounded,
-    color: Color(0xFF111111),
   ),
   _ExportScopeSpec(
     scope: _ExportScope.milk,
     label: 'Milk Records',
     icon: Icons.water_drop_rounded,
-    color: appleBlue,
   ),
   _ExportScopeSpec(
     scope: _ExportScope.expenses,
     label: 'Expenses',
     icon: premiumExpenseIcon,
-    color: appleRed,
   ),
   _ExportScopeSpec(
     scope: _ExportScope.credit,
     label: 'Credit Ledger',
     icon: Icons.handshake_rounded,
-    color: appleOrange,
   ),
   _ExportScopeSpec(
     scope: _ExportScope.salary,
     label: 'Salary',
     icon: Icons.savings_rounded,
-    color: salaryGreen,
   ),
   _ExportScopeSpec(
     scope: _ExportScope.diary,
     label: 'Personal Diary',
     icon: Icons.auto_stories_rounded,
-    color: systemGray,
   ),
   _ExportScopeSpec(
     scope: _ExportScope.business,
     label: 'Business Hub',
     icon: Icons.business_center_rounded,
-    color: appleBlue,
   ),
 ];
+
+class _ExportCenterPalette {
+  const _ExportCenterPalette({
+    required this.panel,
+    required this.panelBorder,
+    required this.primaryText,
+    required this.secondaryText,
+    required this.icon,
+    required this.cardTop,
+    required this.cardBottom,
+    required this.cardBorder,
+    required this.cardShadow,
+    required this.cardGlow,
+    required this.selectedTop,
+    required this.selectedBottom,
+    required this.selectedBorder,
+    required this.selectedText,
+    required this.selectedIcon,
+    required this.selectedShadow,
+  });
+
+  static const _ExportCenterPalette _dark = _ExportCenterPalette(
+    panel: Color(0xB3141E2D),
+    panelBorder: Color(0xFF344257),
+    primaryText: Color(0xFFF4F7FB),
+    secondaryText: Color(0xFFA9B6C8),
+    icon: Color(0xFF8FC5FF),
+    cardTop: Color(0xFF1B2638),
+    cardBottom: Color(0xFF111827),
+    cardBorder: Color(0xFF3A4A61),
+    cardShadow: Color(0x73000000),
+    cardGlow: Color(0x168FC5FF),
+    selectedTop: Color(0xFF214A91),
+    selectedBottom: Color(0xFF142B60),
+    selectedBorder: Color(0xFF659CFF),
+    selectedText: Color(0xFFFFFFFF),
+    selectedIcon: Color(0xFFD9E8FF),
+    selectedShadow: Color(0x662A6FE8),
+  );
+
+  static const _ExportCenterPalette _light = _ExportCenterPalette(
+    panel: Color(0xDDF3F6FA),
+    panelBorder: Color(0xFFD6DFEA),
+    primaryText: Color(0xFF10213A),
+    secondaryText: Color(0xFF64748B),
+    icon: Color(0xFF347FF0),
+    cardTop: Color(0xFFFFFFFF),
+    cardBottom: Color(0xFFF2F5F9),
+    cardBorder: Color(0xFFD3DDE9),
+    cardShadow: Color(0x243B4A62),
+    cardGlow: Color(0x12347FF0),
+    selectedTop: Color(0xFFF5F8FF),
+    selectedBottom: Color(0xFFE4EDFF),
+    selectedBorder: Color(0xFF3D7CF5),
+    selectedText: Color(0xFF10213A),
+    selectedIcon: Color(0xFF286FE8),
+    selectedShadow: Color(0x303D7CF5),
+  );
+
+  static _ExportCenterPalette of(BuildContext context) =>
+      AppStyles.isDark(context) ? _dark : _light;
+
+  final Color panel;
+  final Color panelBorder;
+  final Color primaryText;
+  final Color secondaryText;
+  final Color icon;
+  final Color cardTop;
+  final Color cardBottom;
+  final Color cardBorder;
+  final Color cardShadow;
+  final Color cardGlow;
+  final Color selectedTop;
+  final Color selectedBottom;
+  final Color selectedBorder;
+  final Color selectedText;
+  final Color selectedIcon;
+  final Color selectedShadow;
+
+  List<BoxShadow> get cardShadows => <BoxShadow>[
+    BoxShadow(
+      color: cardShadow,
+      blurRadius: 24,
+      spreadRadius: -7,
+      offset: const Offset(0, 10),
+    ),
+    BoxShadow(
+      color: cardGlow,
+      blurRadius: 18,
+      spreadRadius: -8,
+      offset: Offset.zero,
+    ),
+  ];
+
+  List<BoxShadow> get selectedShadows => <BoxShadow>[
+    BoxShadow(
+      color: selectedShadow,
+      blurRadius: 22,
+      spreadRadius: -5,
+      offset: const Offset(0, 8),
+    ),
+    BoxShadow(
+      color: cardShadow,
+      blurRadius: 9,
+      spreadRadius: -5,
+      offset: const Offset(0, 4),
+    ),
+  ];
+}
+
+class _ExportButtonContent extends StatelessWidget {
+  const _ExportButtonContent({
+    required this.label,
+    required this.icon,
+    required this.textColor,
+    required this.iconColor,
+    required this.fontSize,
+    required this.iconSize,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color textColor;
+  final Color iconColor;
+  final double fontSize;
+  final double iconSize;
+
+  @override
+  Widget build(BuildContext context) => ExcludeSemantics(
+    child: FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.center,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(icon, color: iconColor, size: iconSize),
+          const SizedBox(width: 7),
+          Text(
+            label,
+            maxLines: 1,
+            softWrap: false,
+            style: TextStyle(
+              color: textColor,
+              fontSize: fontSize,
+              height: 1,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -.2,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
 
 Future<void> _showExportCenter(
   BuildContext context,
@@ -9784,7 +10002,7 @@ class _ExportCenterSheetState extends State<_ExportCenterSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final bool dark = Theme.of(context).brightness == Brightness.dark;
+    final _ExportCenterPalette palette = _ExportCenterPalette.of(context);
     return _SheetFrame(
       title: 'Export Center',
       centerTitle: true,
@@ -9793,7 +10011,7 @@ class _ExportCenterSheetState extends State<_ExportCenterSheet> {
           'CHOOSE FORMAT, THEN SELECT REPORT',
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: dark ? Colors.white.withAlpha(145) : const Color(0xFF6B7280),
+            color: palette.secondaryText,
             fontSize: 12,
             fontWeight: FontWeight.w900,
             letterSpacing: 1.05,
@@ -9803,15 +10021,9 @@ class _ExportCenterSheetState extends State<_ExportCenterSheet> {
         Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: dark
-                ? Colors.white.withAlpha(14)
-                : Colors.black.withAlpha(10),
+            color: palette.panel,
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-              color: dark
-                  ? Colors.white.withAlpha(24)
-                  : Colors.black.withAlpha(18),
-            ),
+            border: Border.all(color: palette.panelBorder),
           ),
           child: Column(
             children: <Widget>[
@@ -9822,7 +10034,7 @@ class _ExportCenterSheetState extends State<_ExportCenterSheet> {
                       _ExportFormat.pdf,
                       'Premium PDF',
                       Icons.picture_as_pdf_rounded,
-                      const <Color>[Color(0xFF0787FF), Color(0xFF5856D6)],
+                      palette,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -9831,7 +10043,7 @@ class _ExportCenterSheetState extends State<_ExportCenterSheet> {
                       _ExportFormat.csv,
                       'CSV Backup',
                       Icons.table_view_rounded,
-                      const <Color>[Color(0xFF34C759), Color(0xFF20B85A)],
+                      palette,
                     ),
                   ),
                 ],
@@ -9844,7 +10056,7 @@ class _ExportCenterSheetState extends State<_ExportCenterSheet> {
                       _ExportFormat.aiLedger,
                       'AI Ledger',
                       Icons.auto_awesome_rounded,
-                      const <Color>[Color(0xFF9A67EA), Color(0xFF7057D9)],
+                      palette,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -9864,9 +10076,7 @@ class _ExportCenterSheetState extends State<_ExportCenterSheet> {
             key: ValueKey<_ExportFormat>(_format),
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: dark
-                  ? Colors.white.withAlpha(135)
-                  : systemGray.withAlpha(220),
+              color: palette.secondaryText,
               fontSize: 12.5,
               height: 1.35,
               fontWeight: FontWeight.w800,
@@ -9874,13 +10084,13 @@ class _ExportCenterSheetState extends State<_ExportCenterSheet> {
           ),
         ),
         const SizedBox(height: 24),
-        _scopePair(_exportScopes[0], _exportScopes[1]),
+        _scopePair(_exportScopes[0], _exportScopes[1], palette),
         const SizedBox(height: 12),
-        _scopePair(_exportScopes[2], _exportScopes[3]),
+        _scopePair(_exportScopes[2], _exportScopes[3], palette),
         const SizedBox(height: 12),
-        _scopePair(_exportScopes[4], _exportScopes[5]),
+        _scopePair(_exportScopes[4], _exportScopes[5], palette),
         const SizedBox(height: 12),
-        _scopeButton(_exportScopes[6], wide: true),
+        _scopeButton(_exportScopes[6], palette, wide: true),
       ],
     );
   }
@@ -9889,17 +10099,13 @@ class _ExportCenterSheetState extends State<_ExportCenterSheet> {
     _ExportFormat format,
     String label,
     IconData icon,
-    List<Color> activeColors,
+    _ExportCenterPalette palette,
   ) {
     final bool selected = _format == format;
-    final bool dark = Theme.of(context).brightness == Brightness.dark;
-    final Color idleColor = dark
-        ? Colors.white.withAlpha(175)
-        : systemGray.withAlpha(235);
     return _Pressable(
       semanticLabel: 'Select $label export format',
+      selected: selected,
       onTap: () {
-        HapticFeedback.selectionClick();
         if (_format != format) setState(() => _format = format);
       },
       borderRadius: BorderRadius.circular(18),
@@ -9907,68 +10113,51 @@ class _ExportCenterSheetState extends State<_ExportCenterSheet> {
         duration: const Duration(milliseconds: 220),
         curve: const Cubic(0.2, 0.8, 0.2, 1),
         height: 72,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
           color: selected ? null : Colors.transparent,
           gradient: selected
               ? LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: activeColors,
+                  colors: <Color>[palette.selectedTop, palette.selectedBottom],
                 )
               : null,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: selected
-                ? Colors.white.withAlpha(dark ? 42 : 92)
-                : Colors.transparent,
+            color: selected ? palette.selectedBorder : Colors.transparent,
           ),
-          boxShadow: selected
-              ? <BoxShadow>[
-                  BoxShadow(
-                    color: activeColors.last.withAlpha(dark ? 62 : 82),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
-                  ),
-                ]
-              : const <BoxShadow>[],
+          boxShadow: selected ? palette.selectedShadows : const <BoxShadow>[],
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Icon(icon, color: selected ? Colors.white : idleColor, size: 20),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                softWrap: false,
-                overflow: TextOverflow.fade,
-                style: TextStyle(
-                  color: selected ? Colors.white : idleColor,
-                  fontSize: 15.5,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -.15,
-                ),
-              ),
-            ),
-          ],
+        child: _ExportButtonContent(
+          label: label,
+          icon: icon,
+          textColor: selected ? palette.selectedText : palette.primaryText,
+          iconColor: selected ? palette.selectedIcon : palette.icon,
+          fontSize: 15.5,
+          iconSize: 20,
         ),
       ),
     );
   }
 
-  Widget _scopePair(_ExportScopeSpec left, _ExportScopeSpec right) => Row(
+  Widget _scopePair(
+    _ExportScopeSpec left,
+    _ExportScopeSpec right,
+    _ExportCenterPalette palette,
+  ) => Row(
     children: <Widget>[
-      Expanded(child: _scopeButton(left)),
+      Expanded(child: _scopeButton(left, palette)),
       const SizedBox(width: 12),
-      Expanded(child: _scopeButton(right)),
+      Expanded(child: _scopeButton(right, palette)),
     ],
   );
 
-  Widget _scopeButton(_ExportScopeSpec spec, {bool wide = false}) {
-    final bool dark = Theme.of(context).brightness == Brightness.dark;
-    final List<Color> colors = _scopeGradient(spec, dark);
+  Widget _scopeButton(
+    _ExportScopeSpec spec,
+    _ExportCenterPalette palette, {
+    bool wide = false,
+  }) {
     return _Pressable(
       semanticLabel: 'Export ${spec.label}',
       onTap: () => Navigator.pop(context, _ExportChoice(_format, spec.scope)),
@@ -9976,43 +10165,24 @@ class _ExportCenterSheetState extends State<_ExportCenterSheet> {
       child: Container(
         width: double.infinity,
         height: wide ? 76 : 72,
-        padding: EdgeInsets.symmetric(horizontal: wide ? 22 : 14),
+        padding: EdgeInsets.symmetric(horizontal: wide ? 22 : 10),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: colors,
+            colors: <Color>[palette.cardTop, palette.cardBottom],
           ),
           borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: Colors.white.withAlpha(dark ? 24 : 78)),
-          boxShadow: <BoxShadow>[
-            BoxShadow(
-              color: spec.color.withAlpha(dark ? 34 : 58),
-              blurRadius: 22,
-              offset: const Offset(0, 9),
-            ),
-          ],
+          border: Border.all(color: palette.cardBorder),
+          boxShadow: palette.cardShadows,
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Icon(spec.icon, size: wide ? 22 : 20, color: Colors.white),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                spec.label,
-                maxLines: 1,
-                softWrap: false,
-                overflow: TextOverflow.fade,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: wide ? 19 : 16,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -.2,
-                ),
-              ),
-            ),
-          ],
+        child: _ExportButtonContent(
+          label: spec.label,
+          icon: spec.icon,
+          textColor: palette.primaryText,
+          iconColor: palette.icon,
+          fontSize: wide ? 19 : 16,
+          iconSize: wide ? 22 : 20,
         ),
       ),
     );
@@ -10025,20 +10195,6 @@ class _ExportCenterSheetState extends State<_ExportCenterSheet> {
     _ExportFormat.aiLedger =>
       'AI Ledger AI-readable structured format me complete ledger banayega.',
   };
-
-  List<Color> _scopeGradient(_ExportScopeSpec spec, bool dark) =>
-      switch (spec.scope) {
-        _ExportScope.all =>
-          dark
-              ? const <Color>[Color(0xFF3A3A3C), Color(0xFF111111)]
-              : <Color>[spec.color, const Color(0xFF000000)],
-        _ExportScope.milk => <Color>[const Color(0xFF2BA8FF), spec.color],
-        _ExportScope.expenses => <Color>[const Color(0xFFFF554C), spec.color],
-        _ExportScope.credit => <Color>[const Color(0xFFFFBC45), spec.color],
-        _ExportScope.salary => <Color>[const Color(0xFF35D46D), spec.color],
-        _ExportScope.diary => <Color>[const Color(0xFFA1A1A6), spec.color],
-        _ExportScope.business => <Color>[spec.color, const Color(0xFF8E62D9)],
-      };
 }
 
 class _ExportDataset {
