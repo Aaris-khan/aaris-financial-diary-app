@@ -256,64 +256,30 @@ abstract final class AppStyles {
   static List<BoxShadow> jewelDepth(BuildContext context, Color color) {
     final bool dark = isDark(context);
 
-    if (dark) {
-      final Color ambient = _ambientHue(context, color);
-
-      return <BoxShadow>[
-        // Semantic light behind the raised icon/avatar tile.
-        BoxShadow(
-          color: ambient.withAlpha(_perceptualAlpha(ambient, 66)),
-          blurRadius: 17,
-          spreadRadius: -5,
-          offset: const Offset(1, 6),
-        ),
-
-        // Small top-left highlight makes the tile read above the parent card.
-        BoxShadow(
-          color: Colors.white.withAlpha(28),
-          blurRadius: 11,
-          spreadRadius: -4,
-          offset: const Offset(-5, -5),
-        ),
-
-        // Contact + extrusion pair.
-        BoxShadow(
-          color: Colors.black.withAlpha(150),
-          blurRadius: 4,
-          spreadRadius: -1,
-          offset: const Offset(0, 4),
-        ),
-        BoxShadow(
-          color: Colors.black.withAlpha(96),
-          blurRadius: 19,
-          spreadRadius: -7,
-          offset: const Offset(6, 10),
-        ),
-      ];
-    }
-
-    // Original light-mode jewel depth remains unchanged.
     return <BoxShadow>[
       BoxShadow(
-        color: Colors.white.withAlpha(238),
+        color: Colors.white.withAlpha(dark ? 13 : 238),
         blurRadius: 11,
         spreadRadius: -4,
         offset: const Offset(-4, -4),
       ),
+
       BoxShadow(
-        color: color.withAlpha(40),
+        color: color.withAlpha(dark ? 46 : 40),
         blurRadius: 15,
         spreadRadius: -5,
         offset: const Offset(2, 5),
       ),
+
       BoxShadow(
-        color: Colors.black.withAlpha(28),
+        color: Colors.black.withAlpha(dark ? 84 : 28),
         blurRadius: 3.5,
         spreadRadius: -1,
         offset: const Offset(0, 4),
       ),
+
       BoxShadow(
-        color: Colors.black.withAlpha(17),
+        color: Colors.black.withAlpha(dark ? 66 : 17),
         blurRadius: 18,
         spreadRadius: -7,
         offset: const Offset(6, 9),
@@ -3009,37 +2975,26 @@ class _GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool dark = Theme.of(context).brightness == Brightness.dark;
+
     final Color? semantic = shadowColor ?? tintColor ?? accentColor;
+
     final BorderRadius radius = BorderRadius.circular(borderRadius);
 
-    // DARK_RAISED_3D_V1
-    //
-    // Light mode deliberately keeps the existing premium ceramic recipe.
-    //
-    // Dark mode uses a physically readable four-part depth model:
-    // 1. semantic rear illumination,
-    // 2. cool top-left key light,
-    // 3. tight contact shadow,
-    // 4. broad lower-right extrusion shadow.
-    //
-    // This gives a raised 3D slab instead of a flat tinted rectangle while
-    // keeping blur-layer count restrained for scrolling performance.
     final List<Color> surfaceColors;
 
     if (dark) {
       surfaceColors = tintColor == null
           ? const <Color>[
-              Color(0xFF202936),
-              Color(0xFF131A25),
-              Color(0xFF080C13),
+              Color(0xFF1A2230),
+              Color(0xFF111823),
+              Color(0xFF0A0F18),
             ]
           : <Color>[
-              Color.lerp(const Color(0xFF202936), tintColor, .145)!,
-              Color.lerp(const Color(0xFF131A25), tintColor, .082)!,
-              Color.lerp(const Color(0xFF080C13), tintColor, .038)!,
+              Color.lerp(const Color(0xFF1A2230), tintColor, .10)!,
+              Color.lerp(const Color(0xFF111823), tintColor, .07)!,
+              Color.lerp(const Color(0xFF0A0F18), tintColor, .04)!,
             ];
     } else {
-      // Preserve the existing light-mode card face exactly.
       surfaceColors = tintColor == null
           ? const <Color>[
               Color(0xFFFFFFFF),
@@ -3059,108 +3014,73 @@ class _GlassCard extends StatelessWidget {
       resolvedBorder = borderColor!;
     } else if (semantic == null) {
       resolvedBorder = dark
-          ? Colors.white.withAlpha(46)
+          ? Colors.white.withAlpha(30)
           : const Color(0xFFFFFFFF);
     } else {
-      resolvedBorder = dark
-          ? Color.alphaBlend(semantic.withAlpha(64), Colors.white.withAlpha(39))
-          : Color.alphaBlend(semantic.withAlpha(17), const Color(0xF0FFFFFF));
+      resolvedBorder = Color.alphaBlend(
+        semantic.withAlpha(dark ? 28 : 17),
+        dark ? Colors.white.withAlpha(30) : const Color(0xF0FFFFFF),
+      );
     }
 
+    // SOFT_NEUMORPHIC_LUXE_SELECTED_V1
     final Color? ambient = semantic == null
         ? null
         : AppStyles._ambientHue(context, semantic);
 
-    final List<BoxShadow> shadows;
-
-    if (dark) {
-      final int semanticGlowAlpha = accentColor != null
-          ? 78
-          : tintColor != null
-          ? 86
-          : 70;
-
-      shadows = <BoxShadow>[
-        // Colored light escaping from behind the physical card.
-        if (ambient != null)
-          BoxShadow(
-            color: ambient.withAlpha(
-              AppStyles._perceptualAlpha(ambient, semanticGlowAlpha),
+    final List<BoxShadow> shadows = <BoxShadow>[
+      if (ambient != null)
+        BoxShadow(
+          color: ambient.withAlpha(
+            AppStyles._perceptualAlpha(
+              ambient,
+              accentColor != null
+                  ? (dark ? 58 : 46)
+                  : tintColor != null
+                  ? (dark ? 64 : 52)
+                  : (dark ? 50 : 40),
             ),
-            blurRadius: 31,
-            spreadRadius: -6,
-            offset: const Offset(0, 9),
           ),
-
-        // Upper-left key light separates the slab from the black canvas.
-        BoxShadow(
-          color: Colors.white.withAlpha(27),
-          blurRadius: 14,
-          spreadRadius: -6,
-          offset: const Offset(-7, -7),
+          blurRadius: accentColor != null
+              ? 25
+              : tintColor != null
+              ? 29
+              : 23,
+          spreadRadius: accentColor != null ? -6 : -5,
+          offset: const Offset(1, 7),
         ),
 
-        // Tight contact shadow creates the visible physical thickness.
+      if (ambient != null && tintColor != null)
         BoxShadow(
-          color: Colors.black.withAlpha(188),
-          blurRadius: 4.5,
-          spreadRadius: -1,
-          offset: const Offset(0, 5),
+          color: ambient.withAlpha(
+            AppStyles._perceptualAlpha(ambient, dark ? 26 : 21),
+          ),
+          blurRadius: 42,
+          spreadRadius: -13,
+          offset: const Offset(5, 13),
         ),
 
-        // Broad lower-right extrusion anchors the card in space.
-        BoxShadow(
-          color: Colors.black.withAlpha(126),
-          blurRadius: 25,
-          spreadRadius: -7,
-          offset: const Offset(9, 14),
+      // Neutral physical lift keeps semantic colors premium instead
+      // of making the surface look neon.
+      ...AppStyles.surfaceDepth(context),
+
+      BoxShadow(
+        color: (dark ? Colors.black : const Color(0xFF243247)).withAlpha(
+          dark ? 34 : 9,
         ),
-      ];
-    } else {
-      // Existing light-mode depth is intentionally unchanged.
-      shadows = <BoxShadow>[
-        if (ambient != null)
-          BoxShadow(
-            color: ambient.withAlpha(
-              AppStyles._perceptualAlpha(
-                ambient,
-                accentColor != null
-                    ? 46
-                    : tintColor != null
-                    ? 52
-                    : 40,
-              ),
-            ),
-            blurRadius: accentColor != null
-                ? 25
-                : tintColor != null
-                ? 29
-                : 23,
-            spreadRadius: accentColor != null ? -6 : -5,
-            offset: const Offset(1, 7),
-          ),
-        if (ambient != null && tintColor != null)
-          BoxShadow(
-            color: ambient.withAlpha(AppStyles._perceptualAlpha(ambient, 21)),
-            blurRadius: 42,
-            spreadRadius: -13,
-            offset: const Offset(5, 13),
-          ),
-        ...AppStyles.surfaceDepth(context),
-        BoxShadow(
-          color: const Color(0xFF243247).withAlpha(9),
-          blurRadius: 19,
-          spreadRadius: -9,
-          offset: const Offset(8, 13),
-        ),
-      ];
-    }
+        blurRadius: 19,
+        spreadRadius: -9,
+        offset: const Offset(8, 13),
+      ),
+    ];
 
     return DecoratedBox(
       decoration: BoxDecoration(borderRadius: radius, boxShadow: shadows),
+
       child: ClipRRect(
         borderRadius: radius,
         clipBehavior: Clip.antiAlias,
+
         child: DecoratedBox(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -3171,8 +3091,10 @@ class _GlassCard extends StatelessWidget {
             ),
             borderRadius: radius,
           ),
+
           child: DecoratedBox(
             position: DecorationPosition.foreground,
+
             decoration: BoxDecoration(
               borderRadius: radius,
               border: Border.all(
@@ -3180,9 +3102,9 @@ class _GlassCard extends StatelessWidget {
                 width: UIConstants.borderWidth,
               ),
             ),
+
             child: Stack(
               children: <Widget>[
-                // Bevel lighting across the card face.
                 Positioned.fill(
                   child: IgnorePointer(
                     child: DecoratedBox(
@@ -3190,12 +3112,12 @@ class _GlassCard extends StatelessWidget {
                         gradient: LinearGradient(
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
-                          stops: const <double>[0, .23, .69, 1],
+                          stops: const <double>[0, .24, .70, 1],
                           colors: <Color>[
-                            Colors.white.withAlpha(dark ? 43 : 148),
+                            Colors.white.withAlpha(dark ? 22 : 148),
                             Colors.transparent,
                             Colors.transparent,
-                            Colors.black.withAlpha(dark ? 58 : 12),
+                            Colors.black.withAlpha(dark ? 30 : 12),
                           ],
                         ),
                       ),
@@ -3203,32 +3125,6 @@ class _GlassCard extends StatelessWidget {
                   ),
                 ),
 
-                // Thin specular edge: cheap to render, but gives the upper
-                // surface a crisp raised-material highlight in dark mode.
-                if (dark)
-                  Positioned(
-                    left: borderRadius * .52,
-                    right: borderRadius * .52,
-                    top: 0,
-                    height: 1.15,
-                    child: IgnorePointer(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: <Color>[
-                              Colors.transparent,
-                              Colors.white.withAlpha(102),
-                              Colors.white.withAlpha(42),
-                              Colors.transparent,
-                            ],
-                            stops: const <double>[0, .34, .66, 1],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                // Very restrained semantic reflection inside the lower surface.
                 if (semantic != null)
                   Positioned.fill(
                     child: IgnorePointer(
@@ -3238,7 +3134,7 @@ class _GlassCard extends StatelessWidget {
                             center: Alignment.bottomRight,
                             radius: 1.28,
                             colors: <Color>[
-                              semantic.withAlpha(dark ? 31 : 15),
+                              semantic.withAlpha(dark ? 22 : 15),
                               Colors.transparent,
                             ],
                             stops: const <double>[0, .72],
@@ -3283,77 +3179,41 @@ class _CardAccentPainter extends CustomPainter {
   final bool dark;
 
   Path _rail(Size size) {
-    // BALANCED_CORNER_RAIL_V1
-    //
-    // One crisp semantic rail only:
-    // - no halo/shadow stroke
-    // - original medium 4px width preserved
-    // - symmetric top/bottom geometry
-    // - slightly higher corner wrap
-    // - smooth cubic transition into the vertical section
     final double r = math.min(radius, size.height / 2);
 
-    final double halfStroke = UIConstants.accentStroke / 2;
-
-    // Keep the complete stroke inside the rounded-card clip while allowing
-    // it to sit visually close to the physical outer edge.
-    final double inset = halfStroke + .75;
-
+    // Keep the whole stroke inside the rounded clip and away from the avatar.
+    // Drawing on x=0 clips half of a stroked path and can make the rail look
+    // broken at the rounded turns on some pixel ratios.
+    final double inset = UIConstants.accentStroke / 2 + 3;
+    final double reach = math.min(6.5, math.max(4.5, r * .28));
     final double top = inset;
     final double bottom = math.max(top, size.height - inset);
-
-    // Medium corner reach:
-    // noticeably follows the rounded corner without becoming a thick band
-    // or travelling too far across the top/bottom edge.
-    final double reach = math.min(14.0, math.max(10.0, r * .46));
-
     final double upperTurn = math.min(bottom, math.max(top, r));
-
     final double lowerTurn = math.max(
       upperTurn,
       math.min(bottom, size.height - r),
     );
 
-    // Cubic controls create a cleaner quarter-curve than the previous
-    // quadratic bend. Both ends use identical geometry for perfect balance.
-    final double horizontalControl = reach * .44;
-    final double verticalControl = reach * .60;
-
     return Path()
       ..moveTo(inset + reach, top)
-      ..cubicTo(
-        inset + horizontalControl,
-        top,
-        inset,
-        math.max(top, upperTurn - verticalControl),
-        inset,
-        upperTurn,
-      )
+      ..quadraticBezierTo(inset, top, inset, upperTurn)
       ..lineTo(inset, lowerTurn)
-      ..cubicTo(
-        inset,
-        math.min(bottom, lowerTurn + verticalControl),
-        inset + horizontalControl,
-        bottom,
-        inset + reach,
-        bottom,
-      );
+      ..quadraticBezierTo(inset, bottom, inset + reach, bottom);
   }
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
-
     final Path path = _rail(size);
-
-    // IMPORTANT:
-    // Draw exactly ONE solid rail.
-    //
-    // The previous implementation painted an additional
-    // accentStroke + 8 translucent stroke underneath this one.
-    // That was the source of the faded/halo appearance.
-    //
-    // No shadow, no glow, no translucent outer rail.
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = color.withAlpha(dark ? 70 : 54)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = UIConstants.accentStroke + 8
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
     canvas.drawPath(
       path,
       Paint()
@@ -3361,8 +3221,7 @@ class _CardAccentPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = UIConstants.accentStroke
         ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..isAntiAlias = true,
+        ..strokeJoin = StrokeJoin.round,
     );
   }
 
@@ -4105,30 +3964,18 @@ class _AmountHero extends StatelessWidget {
     required this.label,
     required this.value,
     required this.color,
-    this.secondaryLabel,
-    this.secondaryValue,
   });
 
   final String label;
   final String value;
   final Color color;
-  final String? secondaryLabel;
-  final String? secondaryValue;
 
   @override
   Widget build(BuildContext context) {
-    // UNIFIED_MILK_AMOUNT_HERO_V1
-    //
-    // This stays the single visual source of truth for amount hero cards.
-    // Existing Credit / Salary / Expense cards take the original single-value
-    // path unchanged. Milk optionally adds one compact secondary statistic.
     final bool dark = Theme.of(context).brightness == Brightness.dark;
-    final bool hasSecondary = secondaryLabel != null && secondaryValue != null;
-
     final Color textColor = dark
         ? Color.lerp(Colors.white, color, .72)!
         : Color.lerp(const Color(0xFF06111F), color, .60)!;
-
     final List<Color> background = dark
         ? <Color>[
             Color.lerp(darkGlassTop, color, .21)!.withAlpha(232),
@@ -4148,14 +3995,6 @@ class _AmountHero extends StatelessWidget {
             )!.withAlpha(218),
             Color.lerp(Colors.white, color, .13)!.withAlpha(194),
           ];
-
-    final Widget primary = _HeroValue(
-      label: label,
-      value: value,
-      color: textColor,
-      glow: color,
-    );
-
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -4169,68 +4008,12 @@ class _AmountHero extends StatelessWidget {
         border: AppStyles.glassBorder(context),
         boxShadow: AppStyles.glow(context, color, strong: true),
       ),
-      child: hasSecondary
-          ? Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: <Widget>[
-                Expanded(flex: 7, child: primary),
-                const SizedBox(width: 14),
-                Container(
-                  width: 1,
-                  height: 54,
-                  color: color.withAlpha(dark ? 54 : 25),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  flex: 4,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: <Widget>[
-                      Text(
-                        secondaryLabel!.toUpperCase(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.right,
-                        style: TextStyle(
-                          color: textColor,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: .75,
-                          shadows: <Shadow>[
-                            Shadow(color: color.withAlpha(68), blurRadius: 10),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          secondaryValue!,
-                          maxLines: 1,
-                          softWrap: false,
-                          style: TextStyle(
-                            color: textColor,
-                            fontSize: 19,
-                            fontWeight: FontWeight.w700,
-                            fontFeatures: AppStyles.tabularFigures,
-                            letterSpacing: -.35,
-                            shadows: <Shadow>[
-                              Shadow(
-                                color: color.withAlpha(82),
-                                blurRadius: 13,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            )
-          : primary,
+      child: _HeroValue(
+        label: label,
+        value: value,
+        color: textColor,
+        glow: color,
+      ),
     );
   }
 }
@@ -4295,7 +4078,6 @@ class _ListCard extends StatelessWidget {
     this.onTap,
     this.destinationBuilder,
     this.trailing,
-    this.trailingLabel,
     this.onDelete,
     this.avatarText,
   }) : assert(
@@ -4310,8 +4092,6 @@ class _ListCard extends StatelessWidget {
   final VoidCallback? onTap;
   final WidgetBuilder? destinationBuilder;
   final String? trailing;
-  final String? trailingLabel;
-  // CREDIT_LIST_STATUS_COLUMN_V2
   final VoidCallback? onDelete;
   final String? avatarText;
 
@@ -4435,68 +4215,30 @@ class _ListCard extends StatelessWidget {
               const SizedBox(width: 10),
 
               ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 118),
+                constraints: const BoxConstraints(maxWidth: 108),
 
-                child: trailingLabel == null
-                    ? FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          trailing!,
-                          maxLines: 1,
-                          softWrap: false,
-                          style: TextStyle(
-                            color: color,
-                            fontSize: 19,
-                            fontWeight: FontWeight.w800,
-                            fontFeatures: AppStyles.tabularFigures,
-                            letterSpacing: -.35,
-                            shadows: AppStyles.inkGlow(color, strong: true),
-                          ),
-                        ),
-                      )
-                    : Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: <Widget>[
-                          Text(
-                            trailingLabel!,
-                            maxLines: 1,
-                            softWrap: false,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.right,
-                            style: TextStyle(
-                              color: color.withAlpha(dark ? 218 : 198),
-                              fontSize: 10.5,
-                              height: 1,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: .68,
-                              shadows: AppStyles.inkGlow(color),
-                            ),
-                          ),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
 
-                          const SizedBox(height: 5),
+                  alignment: Alignment.centerRight,
 
-                          FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerRight,
-                            child: Text(
-                              trailing!,
-                              maxLines: 1,
-                              softWrap: false,
-                              style: TextStyle(
-                                color: color,
-                                fontSize: 19,
-                                height: 1,
-                                fontWeight: FontWeight.w800,
-                                fontFeatures: AppStyles.tabularFigures,
-                                letterSpacing: -.35,
-                                shadows: AppStyles.inkGlow(color, strong: true),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                  child: Text(
+                    trailing!,
+
+                    maxLines: 1,
+
+                    softWrap: false,
+
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                      fontFeatures: AppStyles.tabularFigures,
+                      letterSpacing: -.35,
+                      shadows: AppStyles.inkGlow(color, strong: true),
+                    ),
+                  ),
+                ),
               ),
             ],
 
@@ -4900,13 +4642,6 @@ String _displayDate(dynamic value) {
       ? '${value ?? '—'}'
       : DateFormat('dd MMM yyyy').format(date);
 }
-
-String _displayDay(dynamic value) {
-  final DateTime? date = LedgerMath.date(value);
-  return date == null ? '—' : DateFormat('dd').format(date);
-}
-
-// LAST_ENTRY_DAY_ONLY_V1
 
 String _money(dynamic value) {
   final double number = LedgerMath.number(value).abs();
@@ -5488,7 +5223,8 @@ class _PartyLedgerScreenState extends State<PartyLedgerScreen> {
                         : 'TO PAY';
                     return _ListCard(
                       title: item.name,
-                      subtitle: label,
+                      subtitle:
+                          '$label • Milk ${_signedMoney(item.milk)} • Credit ${_signedMoney(item.credit)}',
                       icon: Icons.person_rounded,
                       color: color,
                       avatarText: item.name.trim().isEmpty
@@ -5674,12 +5410,14 @@ class _MilkScreenState extends State<MilkScreen> {
                 )
               else
                 ...names.map((String name) {
+                  final Map<String, dynamic> profile = _map(database[name]);
                   final MilkTotals totals =
                       projection.milkTotalsByProfile[name]!;
                   final Color color = _tone(totals.netAmount);
                   return _ListCard(
                     title: name,
-                    subtitle: '${totals.netKg.abs().toStringAsFixed(2)} KG',
+                    subtitle:
+                        '${totals.netKg >= 0 ? 'Given' : 'Taken'} ${totals.netKg.abs().toStringAsFixed(2)} KG • ${profile['rate'] ?? LedgerMath.defaultMilkRate}/KG',
                     icon: Icons.water_drop_rounded,
                     color: color,
                     avatarText: name.trim().isEmpty
@@ -6097,17 +5835,10 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
                     }),
                   ),
                   const SizedBox(height: 16),
-                  _AmountHero(
-                    label: totals.netAmount > 0
-                        ? 'To Receive'
-                        : totals.netAmount < 0
-                        ? 'To Pay'
-                        : 'Net Balance',
-                    value: _signedMoney(totals.netAmount),
+                  _MilkDetailHero(
+                    amount: _signedMoney(totals.netAmount),
+                    totalKg: '${totals.netKg.abs().toStringAsFixed(2)} KG',
                     color: color,
-                    secondaryLabel: 'Total Milk',
-                    secondaryValue:
-                        '${totals.netKg.abs().toStringAsFixed(2)} KG',
                   ),
                   const SizedBox(height: 24),
                   _SectionTitle(
@@ -6177,6 +5908,147 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
       );
     },
   );
+}
+
+class _MilkDetailHero extends StatelessWidget {
+  const _MilkDetailHero({
+    required this.amount,
+    required this.totalKg,
+    required this.color,
+  });
+
+  final String amount;
+  final String totalKg;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+    final Color surface = dark ? const Color(0xFF121720) : Colors.white;
+    return Container(
+      constraints: const BoxConstraints(minHeight: 150),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 23),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[
+            color.withAlpha(dark ? 34 : 19),
+            surface,
+            color.withAlpha(dark ? 19 : 10),
+          ],
+          stops: const <double>[0, .58, 1],
+        ),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: color.withAlpha(dark ? 72 : 54)),
+        boxShadow: dark
+            ? const <BoxShadow>[]
+            : <BoxShadow>[
+                BoxShadow(
+                  color: color.withAlpha(34),
+                  blurRadius: 34,
+                  spreadRadius: 1,
+                  offset: const Offset(0, 14),
+                ),
+              ],
+      ),
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          final bool compact = constraints.maxWidth < 330;
+          return Row(
+            children: <Widget>[
+              if (!compact) ...<Widget>[
+                _LedgerIcon(
+                  icon: Icons.water_drop_rounded,
+                  color: color,
+                  size: 54,
+                ),
+                const SizedBox(width: 16),
+              ],
+              Expanded(
+                flex: 6,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      'MONTH BILL',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: .85,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        amount,
+                        style: TextStyle(
+                          color: color,
+                          fontSize: compact ? 34 : 39,
+                          height: 1,
+                          fontWeight: FontWeight.w900,
+                          fontFeatures: AppStyles.tabularFigures,
+                          letterSpacing: -1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 82,
+                margin: const EdgeInsets.symmetric(horizontal: 14),
+                color: color.withAlpha(dark ? 48 : 28),
+              ),
+              Expanded(
+                flex: 4,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: <Widget>[
+                    Text(
+                      'TOTAL MILK',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: .75,
+                      ),
+                    ),
+                    const SizedBox(height: 9),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        totalKg,
+                        style: TextStyle(
+                          color: color,
+                          fontSize: compact ? 20 : 23,
+                          fontWeight: FontWeight.w900,
+                          fontFeatures: AppStyles.tabularFigures,
+                          letterSpacing: -.45,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 }
 
 class _SoftShareButton extends StatelessWidget {
@@ -7524,21 +7396,19 @@ class _CreditScreenState extends State<CreditScreen> {
               else
                 ...groups.map((CreditPartySummary group) {
                   final Color color = _tone(group.net);
-                  final String statusLabel = group.net > 0
-                      ? 'TO RECEIVE'
-                      : group.net < 0
-                      ? 'TO PAY'
-                      : 'SETTLED';
-
                   return _ListCard(
                     title: group.name,
-                    subtitle: 'Last entry: ${_displayDay(group.lastDate)}',
+                    subtitle:
+                        '${group.net > 0
+                            ? 'To Receive'
+                            : group.net < 0
+                            ? 'To Pay'
+                            : 'Settled'} • Last ${_displayDate(group.lastDate)}',
                     icon: Icons.person_rounded,
                     color: color,
                     avatarText: group.name.trim().isEmpty
                         ? 'C'
                         : group.name.trim()[0].toUpperCase(),
-                    trailingLabel: statusLabel,
                     trailing: _signedMoney(group.net),
                     destinationBuilder: (_) => CreditDetailScreen(
                       sync: widget.sync,
@@ -8011,15 +7881,16 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                 color: moduleColor,
               ),
               const SizedBox(height: 24),
-              const _SectionTitle('Categories', color: appleBlue),
+              const _SectionTitle('Categories'),
               if (groups.isEmpty)
                 const _EmptyState(premiumExpenseIcon, 'No expenses this month')
               else
                 ...groups.map(
                   (ExpenseCategorySummary group) => _ListCard(
                     title: group.category,
-                    // EXPENSE_LAST_ENTRY_ONLY_V1
-                    subtitle: 'Last entry: ${_displayDay(group.lastDate)}',
+                    subtitle: group.monthTotal > 0
+                        ? 'This month • Last ${_displayDate(group.lastDate)}'
+                        : 'No expense this month • Last ${_displayDate(group.lastDate)}',
                     icon: premiumExpenseIcon,
                     color: semanticRed,
                     trailing: group.monthTotal > 0

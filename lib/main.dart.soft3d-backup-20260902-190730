@@ -35,7 +35,7 @@ const Color appleOrange = Color(0xFFFF9500);
 const Color diaryOrange = Color(0xFFF5A623);
 const Color diaryOrange2 = Color(0xFFFFB340);
 const Color systemGray = Color(0xFF8E8E93);
-const Color lightCanvas = Color(0xFFF3F5F8);
+const Color lightCanvas = Color(0xFFF5F5F7);
 const Color darkGlassTop = Color(0xFF121826);
 const Color darkGlassBottom = Color(0xFF080C18);
 const Color exportIndigo = Color(0xFF5E5CE6);
@@ -130,35 +130,29 @@ abstract final class AppStyles {
   }
 
   static List<BoxShadow> surfaceDepth(BuildContext context) {
-    // PREMIUM_SOFT_3D_V4
-    //
-    // Crisp contact depth + broad grounding depth.
-    // The card reads as a real raised ceramic slab without
-    // stacking excessive expensive blur layers.
     final bool dark = isDark(context);
-
-    final Color ink = dark ? Colors.black : const Color(0xFF243247);
-
+    final Color depthInk = dark ? Colors.black : const Color(0xFF172033);
     return <BoxShadow>[
+      // A tight contact layer anchors the card without flattening its edges.
       BoxShadow(
-        color: Colors.white.withAlpha(dark ? 12 : 248),
-        blurRadius: dark ? 13 : 18,
-        spreadRadius: -5,
-        offset: const Offset(-6, -6),
+        color: depthInk.withAlpha(dark ? 76 : 22),
+        blurRadius: 5,
+        spreadRadius: -1.25,
+        offset: const Offset(0, 2.5),
       ),
-
+      // The directional key shadow establishes a clear virtual light source.
       BoxShadow(
-        color: ink.withAlpha(dark ? 102 : 38),
-        blurRadius: 3.5,
-        spreadRadius: -1,
-        offset: const Offset(0, 4),
+        color: depthInk.withAlpha(dark ? 56 : 18),
+        blurRadius: 22,
+        spreadRadius: -6,
+        offset: const Offset(0, 9),
       ),
-
+      // The very soft ambient layer creates lift without a grey muddy ring.
       BoxShadow(
-        color: ink.withAlpha(dark ? 70 : 24),
-        blurRadius: dark ? 27 : 25,
-        spreadRadius: -7,
-        offset: const Offset(8, 12),
+        color: depthInk.withAlpha(dark ? 40 : 12),
+        blurRadius: 52,
+        spreadRadius: -12,
+        offset: const Offset(0, 20),
       ),
     ];
   }
@@ -186,47 +180,61 @@ abstract final class AppStyles {
     bool strong = false,
   }) {
     final bool dark = isDark(context);
-
     final Color ambient = _ambientHue(context, color);
-
     return <BoxShadow>[
+      // Dense near-edge corona: the approved mockup is darkest immediately
+      // behind the card, then loses energy smoothly in every direction.
       BoxShadow(
         color: ambient.withAlpha(
           _perceptualAlpha(
             ambient,
-            strong ? (dark ? 58 : 48) : (dark ? 45 : 35),
+            strong ? (dark ? 56 : 38) : (dark ? 43 : 28),
           ),
         ),
-        blurRadius: strong ? 24 : 19,
-        spreadRadius: strong ? -4 : -5,
-        offset: const Offset(1, 6),
+        blurRadius: strong ? 16 : 14,
+        spreadRadius: strong ? -1.25 : -1.5,
+        offset: Offset.zero,
       ),
-
+      // Broad ambient falloff stays compact and symmetrical—light, not fire.
+      BoxShadow(
+        color: ambient.withAlpha(
+          _perceptualAlpha(
+            ambient,
+            strong ? (dark ? 32 : 22) : (dark ? 25 : 16),
+          ),
+        ),
+        blurRadius: strong ? 28 : 24,
+        spreadRadius: strong ? -7 : -6,
+        offset: Offset.zero,
+      ),
       if (strong)
         BoxShadow(
-          color: ambient.withAlpha(_perceptualAlpha(ambient, dark ? 25 : 20)),
-          blurRadius: 38,
-          spreadRadius: -12,
-          offset: const Offset(5, 12),
+          color: ambient.withAlpha(_perceptualAlpha(ambient, dark ? 14 : 9)),
+          blurRadius: 44,
+          spreadRadius: -16,
+          offset: Offset.zero,
         ),
-
       ...surfaceDepth(context),
     ];
   }
 
   static List<BoxShadow> railDepth(BuildContext context, Color color) {
     final bool dark = isDark(context);
-
     final Color ambient = _ambientHue(context, color);
-
     return <BoxShadow>[
+      // Accent-rail cards use the same compact 360-degree light model.
       BoxShadow(
-        color: ambient.withAlpha(_perceptualAlpha(ambient, dark ? 52 : 40)),
-        blurRadius: 21,
-        spreadRadius: -5,
-        offset: const Offset(0, 6),
+        color: ambient.withAlpha(_perceptualAlpha(ambient, dark ? 48 : 32)),
+        blurRadius: 14,
+        spreadRadius: -1.25,
+        offset: Offset.zero,
       ),
-
+      BoxShadow(
+        color: ambient.withAlpha(_perceptualAlpha(ambient, dark ? 28 : 18)),
+        blurRadius: 26,
+        spreadRadius: -7,
+        offset: Offset.zero,
+      ),
       ...surfaceDepth(context),
     ];
   }
@@ -255,68 +263,24 @@ abstract final class AppStyles {
 
   static List<BoxShadow> jewelDepth(BuildContext context, Color color) {
     final bool dark = isDark(context);
-
-    if (dark) {
-      final Color ambient = _ambientHue(context, color);
-
-      return <BoxShadow>[
-        // Semantic light behind the raised icon/avatar tile.
-        BoxShadow(
-          color: ambient.withAlpha(_perceptualAlpha(ambient, 66)),
-          blurRadius: 17,
-          spreadRadius: -5,
-          offset: const Offset(1, 6),
-        ),
-
-        // Small top-left highlight makes the tile read above the parent card.
-        BoxShadow(
-          color: Colors.white.withAlpha(28),
-          blurRadius: 11,
-          spreadRadius: -4,
-          offset: const Offset(-5, -5),
-        ),
-
-        // Contact + extrusion pair.
-        BoxShadow(
-          color: Colors.black.withAlpha(150),
-          blurRadius: 4,
-          spreadRadius: -1,
-          offset: const Offset(0, 4),
-        ),
-        BoxShadow(
-          color: Colors.black.withAlpha(96),
-          blurRadius: 19,
-          spreadRadius: -7,
-          offset: const Offset(6, 10),
-        ),
-      ];
-    }
-
-    // Original light-mode jewel depth remains unchanged.
     return <BoxShadow>[
       BoxShadow(
-        color: Colors.white.withAlpha(238),
-        blurRadius: 11,
-        spreadRadius: -4,
-        offset: const Offset(-4, -4),
+        color: Colors.black.withAlpha(dark ? 30 : 7),
+        blurRadius: 4,
+        spreadRadius: -2,
+        offset: const Offset(0, 1),
       ),
       BoxShadow(
-        color: color.withAlpha(40),
-        blurRadius: 15,
-        spreadRadius: -5,
-        offset: const Offset(2, 5),
-      ),
-      BoxShadow(
-        color: Colors.black.withAlpha(28),
-        blurRadius: 3.5,
-        spreadRadius: -1,
-        offset: const Offset(0, 4),
-      ),
-      BoxShadow(
-        color: Colors.black.withAlpha(17),
+        color: color.withAlpha(dark ? 31 : 20),
         blurRadius: 18,
-        spreadRadius: -7,
-        offset: const Offset(6, 9),
+        spreadRadius: -6,
+        offset: const Offset(0, 6),
+      ),
+      BoxShadow(
+        color: Colors.black.withAlpha(dark ? 28 : 7),
+        blurRadius: 30,
+        spreadRadius: -10,
+        offset: const Offset(0, 12),
       ),
     ];
   }
@@ -2253,207 +2217,135 @@ class _BottomLedgerNav extends StatelessWidget {
 
   Widget _buildNavigation(BuildContext context) {
     final bool dark = Theme.of(context).brightness == Brightness.dark;
-
     final Duration navMotion = AppMotion.reduce(context)
         ? Duration.zero
         : UIConstants.navMotion;
-
     final List<Color> colors = _moduleTabColors(sync.currentProjection);
-
-    final int safeSelected = colors.isEmpty
-        ? 0
-        : selected.clamp(0, colors.length - 1).toInt();
-
-    final Color activeColor = colors.isEmpty ? appleBlue : colors[safeSelected];
-
-    final BorderRadius radius = BorderRadius.circular(30);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 4, 10, 7),
-
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: radius,
-
-          boxShadow: <BoxShadow>[
-            BoxShadow(
-              color: activeColor.withAlpha(dark ? 34 : 22),
-              blurRadius: 25,
-              spreadRadius: -8,
-              offset: const Offset(0, 7),
-            ),
-
-            ...AppStyles.surfaceDepth(context),
-          ],
-        ),
-
-        child: ClipRRect(
-          borderRadius: radius,
-
-          clipBehavior: Clip.antiAlias,
-
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: Colors.black.withAlpha(dark ? 108 : 16),
+            blurRadius: dark ? 42 : 34,
+            spreadRadius: -12,
+            offset: const Offset(0, -10),
+          ),
+        ],
+      ),
+      child: ClipRect(
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 22, sigmaY: 22),
           child: DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
                 colors: dark
-                    ? const <Color>[Color(0xFF18202D), Color(0xFF0B111A)]
-                    : const <Color>[Color(0xFFFFFFFF), Color(0xFFF0F4F8)],
+                    ? const <Color>[Color(0xE0121928), Color(0xD0080D18)]
+                    : const <Color>[Color(0xF3FFFFFF), Color(0xE4FFFFFF)],
               ),
-
-              border: Border.all(
-                color: dark
-                    ? Colors.white.withAlpha(28)
-                    : Colors.white.withAlpha(230),
-                width: .9,
+              border: Border(
+                top: BorderSide(
+                  color: dark
+                      ? Colors.white.withAlpha(22)
+                      : Colors.white.withAlpha(210),
+                  width: .8,
+                ),
               ),
             ),
-
             child: SafeArea(
               top: false,
-
               child: SizedBox(
-                height: 86,
-
+                height: 88,
                 child: SingleChildScrollView(
                   controller: controller,
-
                   scrollDirection: Axis.horizontal,
-
                   physics: const BouncingScrollPhysics(),
-
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4),
-
                     child: Row(
                       children: List<Widget>.generate(_tabs.length, (
                         int index,
                       ) {
                         final _TabSpec spec = _tabs[index];
-
                         final bool active = index == selected;
-
                         final Color color = colors[index];
-
                         return _Pressable(
                           onTap: () => onSelected(index),
-
                           semanticLabel: '${spec.label} tab',
-
                           selected: active,
-
                           borderRadius: BorderRadius.circular(
                             UIConstants.actionRadius,
                           ),
-
                           child: AnimatedSlide(
                             offset: active
                                 ? const Offset(0, -.025)
                                 : Offset.zero,
-
                             duration: navMotion,
-
                             curve: UIConstants.motionOut,
-
                             child: AnimatedContainer(
                               duration: navMotion,
-
                               curve: UIConstants.motionOut,
-
                               width: 84,
-
-                              height: 68,
-
+                              height: 70,
                               margin: const EdgeInsets.symmetric(horizontal: 4),
-
                               decoration: const BoxDecoration(
                                 color: Colors.transparent,
                               ),
-
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
-
                                 children: <Widget>[
                                   AnimatedScale(
                                     scale: active ? 1.045 : 1,
-
                                     duration: navMotion,
-
                                     curve: UIConstants.motionOut,
-
                                     child: _PremiumNavIconFrame(
                                       color: color,
-
                                       active: active,
-
                                       dark: dark,
-
                                       child: _BottomNavGlyph(
                                         icon: active
                                             ? spec.activeIcon
                                             : spec.inactiveIcon,
-
                                         size:
                                             (active ? 24 : 22.5) *
                                             spec.opticalScale,
-
                                         color: active
                                             ? color
                                             : color.withAlpha(dark ? 164 : 160),
-
                                         active: active,
-
                                         dark: dark,
                                       ),
                                     ),
                                   ),
-
                                   const SizedBox(height: 3),
-
                                   AnimatedDefaultTextStyle(
                                     duration: navMotion,
-
                                     curve: UIConstants.motionOut,
-
                                     style: TextStyle(
                                       color: active
                                           ? color
                                           : color.withAlpha(dark ? 176 : 188),
-
                                       fontSize: active ? 12.5 : 12,
-
                                       fontWeight: active
                                           ? FontWeight.w800
                                           : FontWeight.w600,
-
                                       letterSpacing: active ? -.12 : 0,
-
                                       shadows: active
                                           ? AppStyles.inkGlow(color)
                                           : null,
                                     ),
-
                                     child: Text(spec.label),
                                   ),
-
                                   const SizedBox(height: 4),
-
                                   AnimatedContainer(
                                     duration: navMotion,
-
                                     curve: UIConstants.motionOut,
-
                                     width: active ? 24 : 0,
-
                                     height: 2.5,
-
                                     decoration: BoxDecoration(
                                       color: color.withAlpha(active ? 188 : 0),
-
                                       borderRadius: BorderRadius.circular(99),
-
                                       boxShadow: active
                                           ? <BoxShadow>[
                                               BoxShadow(
@@ -2501,44 +2393,40 @@ class _PremiumNavIconFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) => AnimatedContainer(
     duration: AppMotion.reduce(context) ? Duration.zero : UIConstants.motion,
-
     curve: UIConstants.motionOut,
-
     width: active ? 46 : 39,
-
-    height: active ? 40 : 35,
-
+    height: active ? 39 : 35,
     alignment: Alignment.center,
-
     decoration: BoxDecoration(
       borderRadius: BorderRadius.circular(active ? 15 : 13),
-
       gradient: LinearGradient(
         begin: Alignment.topLeft,
-
         end: Alignment.bottomRight,
-
-        colors: active
-            ? dark
-                  ? <Color>[
-                      Color.lerp(const Color(0xFF1B2432), color, .18)!,
-                      Color.lerp(const Color(0xFF0D131C), color, .09)!,
-                    ]
-                  : <Color>[
-                      Color.lerp(Colors.white, color, .14)!,
-                      Color.lerp(const Color(0xFFF0F4F8), color, .07)!,
-                    ]
-            : <Color>[color.withAlpha(dark ? 15 : 8), Colors.transparent],
+        colors: <Color>[
+          color.withAlpha(active ? (dark ? 34 : 26) : (dark ? 16 : 11)),
+          color.withAlpha(active ? (dark ? 14 : 9) : 0),
+        ],
       ),
-
       border: Border.all(
-        color: color.withAlpha(active ? (dark ? 82 : 66) : (dark ? 24 : 18)),
+        color: color.withAlpha(active ? (dark ? 70 : 54) : (dark ? 24 : 18)),
         width: active ? .9 : .7,
       ),
-
-      boxShadow: active ? AppStyles.jewelDepth(context, color) : null,
+      boxShadow: active
+          ? <BoxShadow>[
+              BoxShadow(
+                color: color.withAlpha(dark ? 48 : 34),
+                blurRadius: 16,
+                spreadRadius: -5,
+                offset: const Offset(0, 5),
+              ),
+              BoxShadow(
+                color: Colors.white.withAlpha(dark ? 12 : 88),
+                blurRadius: 1,
+                offset: const Offset(0, -1),
+              ),
+            ]
+          : null,
     ),
-
     child: child,
   );
 }
@@ -3009,153 +2897,36 @@ class _GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool dark = Theme.of(context).brightness == Brightness.dark;
-    final Color? semantic = shadowColor ?? tintColor ?? accentColor;
-    final BorderRadius radius = BorderRadius.circular(borderRadius);
-
-    // DARK_RAISED_3D_V1
-    //
-    // Light mode deliberately keeps the existing premium ceramic recipe.
-    //
-    // Dark mode uses a physically readable four-part depth model:
-    // 1. semantic rear illumination,
-    // 2. cool top-left key light,
-    // 3. tight contact shadow,
-    // 4. broad lower-right extrusion shadow.
-    //
-    // This gives a raised 3D slab instead of a flat tinted rectangle while
-    // keeping blur-layer count restrained for scrolling performance.
     final List<Color> surfaceColors;
-
-    if (dark) {
-      surfaceColors = tintColor == null
-          ? const <Color>[
-              Color(0xFF202936),
-              Color(0xFF131A25),
-              Color(0xFF080C13),
+    if (tintColor == null) {
+      surfaceColors = dark
+          ? const <Color>[Color(0xF0121826), Color(0xE3080C18)]
+          : const <Color>[Color(0xFAFFFFFF), Color(0xF2FFFFFF)];
+    } else {
+      surfaceColors = dark
+          ? <Color>[
+              Color.lerp(darkGlassTop, tintColor, .12)!.withAlpha(240),
+              Color.lerp(darkGlassBottom, tintColor, .06)!.withAlpha(224),
             ]
           : <Color>[
-              Color.lerp(const Color(0xFF202936), tintColor, .145)!,
-              Color.lerp(const Color(0xFF131A25), tintColor, .082)!,
-              Color.lerp(const Color(0xFF080C13), tintColor, .038)!,
-            ];
-    } else {
-      // Preserve the existing light-mode card face exactly.
-      surfaceColors = tintColor == null
-          ? const <Color>[
-              Color(0xFFFFFFFF),
-              Color(0xFFFAFCFE),
-              Color(0xFFEEF2F6),
-            ]
-          : <Color>[
-              Color.lerp(Colors.white, tintColor, .040)!,
-              Color.lerp(const Color(0xFFFAFCFE), tintColor, .028)!,
-              Color.lerp(const Color(0xFFEEF2F6), tintColor, .018)!,
+              Color.lerp(Colors.white, tintColor, .055)!.withAlpha(248),
+              Color.lerp(Colors.white, tintColor, .028)!.withAlpha(236),
             ];
     }
-
-    final Color resolvedBorder;
-
-    if (borderColor != null) {
-      resolvedBorder = borderColor!;
-    } else if (semantic == null) {
-      resolvedBorder = dark
-          ? Colors.white.withAlpha(46)
-          : const Color(0xFFFFFFFF);
-    } else {
-      resolvedBorder = dark
-          ? Color.alphaBlend(semantic.withAlpha(64), Colors.white.withAlpha(39))
-          : Color.alphaBlend(semantic.withAlpha(17), const Color(0xF0FFFFFF));
-    }
-
-    final Color? ambient = semantic == null
-        ? null
-        : AppStyles._ambientHue(context, semantic);
-
-    final List<BoxShadow> shadows;
-
-    if (dark) {
-      final int semanticGlowAlpha = accentColor != null
-          ? 78
-          : tintColor != null
-          ? 86
-          : 70;
-
-      shadows = <BoxShadow>[
-        // Colored light escaping from behind the physical card.
-        if (ambient != null)
-          BoxShadow(
-            color: ambient.withAlpha(
-              AppStyles._perceptualAlpha(ambient, semanticGlowAlpha),
-            ),
-            blurRadius: 31,
-            spreadRadius: -6,
-            offset: const Offset(0, 9),
-          ),
-
-        // Upper-left key light separates the slab from the black canvas.
-        BoxShadow(
-          color: Colors.white.withAlpha(27),
-          blurRadius: 14,
-          spreadRadius: -6,
-          offset: const Offset(-7, -7),
-        ),
-
-        // Tight contact shadow creates the visible physical thickness.
-        BoxShadow(
-          color: Colors.black.withAlpha(188),
-          blurRadius: 4.5,
-          spreadRadius: -1,
-          offset: const Offset(0, 5),
-        ),
-
-        // Broad lower-right extrusion anchors the card in space.
-        BoxShadow(
-          color: Colors.black.withAlpha(126),
-          blurRadius: 25,
-          spreadRadius: -7,
-          offset: const Offset(9, 14),
-        ),
-      ];
-    } else {
-      // Existing light-mode depth is intentionally unchanged.
-      shadows = <BoxShadow>[
-        if (ambient != null)
-          BoxShadow(
-            color: ambient.withAlpha(
-              AppStyles._perceptualAlpha(
-                ambient,
-                accentColor != null
-                    ? 46
-                    : tintColor != null
-                    ? 52
-                    : 40,
-              ),
-            ),
-            blurRadius: accentColor != null
-                ? 25
-                : tintColor != null
-                ? 29
-                : 23,
-            spreadRadius: accentColor != null ? -6 : -5,
-            offset: const Offset(1, 7),
-          ),
-        if (ambient != null && tintColor != null)
-          BoxShadow(
-            color: ambient.withAlpha(AppStyles._perceptualAlpha(ambient, 21)),
-            blurRadius: 42,
-            spreadRadius: -13,
-            offset: const Offset(5, 13),
-          ),
-        ...AppStyles.surfaceDepth(context),
-        BoxShadow(
-          color: const Color(0xFF243247).withAlpha(9),
-          blurRadius: 19,
-          spreadRadius: -9,
-          offset: const Offset(8, 13),
-        ),
-      ];
-    }
-
+    final Border border = borderColor != null
+        ? Border.all(color: borderColor!, width: UIConstants.borderWidth)
+        : AppStyles.glassBorder(context, accent: accentColor);
+    final Color? resolvedGlowColor = shadowColor ?? tintColor ?? accentColor;
+    final List<BoxShadow> shadows = resolvedGlowColor != null
+        ? accentColor != null
+              ? AppStyles.railDepth(context, resolvedGlowColor)
+              : AppStyles.glow(
+                  context,
+                  resolvedGlowColor,
+                  strong: tintColor != null,
+                )
+        : AppStyles.surfaceDepth(context);
+    final BorderRadius radius = BorderRadius.circular(borderRadius);
     return DecoratedBox(
       decoration: BoxDecoration(borderRadius: radius, boxShadow: shadows),
       child: ClipRRect(
@@ -3166,23 +2937,17 @@ class _GlassCard extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              stops: const <double>[0, .52, 1],
               colors: surfaceColors,
             ),
             borderRadius: radius,
           ),
           child: DecoratedBox(
             position: DecorationPosition.foreground,
-            decoration: BoxDecoration(
-              borderRadius: radius,
-              border: Border.all(
-                color: resolvedBorder,
-                width: UIConstants.borderWidth,
-              ),
-            ),
+            decoration: BoxDecoration(borderRadius: radius, border: border),
             child: Stack(
               children: <Widget>[
-                // Bevel lighting across the card face.
+                // One continuous lighting field replaces the short straight
+                // edge strips that terminated before the rounded corners.
                 Positioned.fill(
                   child: IgnorePointer(
                     child: DecoratedBox(
@@ -3190,64 +2955,18 @@ class _GlassCard extends StatelessWidget {
                         gradient: LinearGradient(
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
-                          stops: const <double>[0, .23, .69, 1],
+                          stops: const <double>[0, .32, .68, 1],
                           colors: <Color>[
-                            Colors.white.withAlpha(dark ? 43 : 148),
+                            Colors.white.withAlpha(dark ? 15 : 31),
                             Colors.transparent,
                             Colors.transparent,
-                            Colors.black.withAlpha(dark ? 58 : 12),
+                            Colors.black.withAlpha(dark ? 22 : 7),
                           ],
                         ),
                       ),
                     ),
                   ),
                 ),
-
-                // Thin specular edge: cheap to render, but gives the upper
-                // surface a crisp raised-material highlight in dark mode.
-                if (dark)
-                  Positioned(
-                    left: borderRadius * .52,
-                    right: borderRadius * .52,
-                    top: 0,
-                    height: 1.15,
-                    child: IgnorePointer(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: <Color>[
-                              Colors.transparent,
-                              Colors.white.withAlpha(102),
-                              Colors.white.withAlpha(42),
-                              Colors.transparent,
-                            ],
-                            stops: const <double>[0, .34, .66, 1],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                // Very restrained semantic reflection inside the lower surface.
-                if (semantic != null)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: RadialGradient(
-                            center: Alignment.bottomRight,
-                            radius: 1.28,
-                            colors: <Color>[
-                              semantic.withAlpha(dark ? 31 : 15),
-                              Colors.transparent,
-                            ],
-                            stops: const <double>[0, .72],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-
                 if (accentColor != null)
                   Positioned.fill(
                     child: IgnorePointer(
@@ -3260,7 +2979,6 @@ class _GlassCard extends StatelessWidget {
                       ),
                     ),
                   ),
-
                 Padding(padding: padding, child: child),
               ],
             ),
@@ -3283,77 +3001,41 @@ class _CardAccentPainter extends CustomPainter {
   final bool dark;
 
   Path _rail(Size size) {
-    // BALANCED_CORNER_RAIL_V1
-    //
-    // One crisp semantic rail only:
-    // - no halo/shadow stroke
-    // - original medium 4px width preserved
-    // - symmetric top/bottom geometry
-    // - slightly higher corner wrap
-    // - smooth cubic transition into the vertical section
     final double r = math.min(radius, size.height / 2);
 
-    final double halfStroke = UIConstants.accentStroke / 2;
-
-    // Keep the complete stroke inside the rounded-card clip while allowing
-    // it to sit visually close to the physical outer edge.
-    final double inset = halfStroke + .75;
-
+    // Keep the whole stroke inside the rounded clip and away from the avatar.
+    // Drawing on x=0 clips half of a stroked path and can make the rail look
+    // broken at the rounded turns on some pixel ratios.
+    final double inset = UIConstants.accentStroke / 2 + 3;
+    final double reach = math.min(6.5, math.max(4.5, r * .28));
     final double top = inset;
     final double bottom = math.max(top, size.height - inset);
-
-    // Medium corner reach:
-    // noticeably follows the rounded corner without becoming a thick band
-    // or travelling too far across the top/bottom edge.
-    final double reach = math.min(14.0, math.max(10.0, r * .46));
-
     final double upperTurn = math.min(bottom, math.max(top, r));
-
     final double lowerTurn = math.max(
       upperTurn,
       math.min(bottom, size.height - r),
     );
 
-    // Cubic controls create a cleaner quarter-curve than the previous
-    // quadratic bend. Both ends use identical geometry for perfect balance.
-    final double horizontalControl = reach * .44;
-    final double verticalControl = reach * .60;
-
     return Path()
       ..moveTo(inset + reach, top)
-      ..cubicTo(
-        inset + horizontalControl,
-        top,
-        inset,
-        math.max(top, upperTurn - verticalControl),
-        inset,
-        upperTurn,
-      )
+      ..quadraticBezierTo(inset, top, inset, upperTurn)
       ..lineTo(inset, lowerTurn)
-      ..cubicTo(
-        inset,
-        math.min(bottom, lowerTurn + verticalControl),
-        inset + horizontalControl,
-        bottom,
-        inset + reach,
-        bottom,
-      );
+      ..quadraticBezierTo(inset, bottom, inset + reach, bottom);
   }
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
-
     final Path path = _rail(size);
-
-    // IMPORTANT:
-    // Draw exactly ONE solid rail.
-    //
-    // The previous implementation painted an additional
-    // accentStroke + 8 translucent stroke underneath this one.
-    // That was the source of the faded/halo appearance.
-    //
-    // No shadow, no glow, no translucent outer rail.
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = color.withAlpha(dark ? 48 : 32)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = UIConstants.accentStroke + 4
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
     canvas.drawPath(
       path,
       Paint()
@@ -3361,8 +3043,7 @@ class _CardAccentPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = UIConstants.accentStroke
         ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..isAntiAlias = true,
+        ..strokeJoin = StrokeJoin.round,
     );
   }
 
@@ -3504,56 +3185,55 @@ class _CircleAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool dark = Theme.of(context).brightness == Brightness.dark;
-
     return Padding(
       padding: const EdgeInsets.only(left: 6),
-
       child: _Pressable(
         onTap: onTap,
-
         semanticLabel: semanticLabel,
-
         borderRadius: BorderRadius.circular(24),
-
-        feedbackColor: color,
-
         child: Container(
           width: 48,
           height: 48,
-
+          clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-
-              colors: dark
-                  ? <Color>[
-                      Color.lerp(const Color(0xFF1B2432), color, .16)!,
-                      Color.lerp(const Color(0xFF0D131C), color, .08)!,
-                    ]
-                  : <Color>[
-                      Color.lerp(Colors.white, color, .10)!,
-                      Color.lerp(const Color(0xFFF0F4F8), color, .05)!,
-                    ],
+              colors: <Color>[
+                color.withAlpha(dark ? 42 : 29),
+                color.withAlpha(dark ? 18 : 10),
+              ],
             ),
-
-            border: Border.all(
-              color: color.withAlpha(dark ? 84 : 62),
-              width: UIConstants.borderWidth,
+            border: Border.fromBorderSide(
+              AppStyles.hairline(context, accent: color, active: true),
             ),
-
             boxShadow: AppStyles.jewelDepth(context, color),
           ),
-
-          child: Center(
-            child: Icon(
-              icon,
-              size: 21.5,
-              color: color,
-              shadows: AppStyles.inkGlow(color, strong: true),
-            ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              Positioned(
+                left: 13,
+                right: 13,
+                top: 0,
+                height: 1,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withAlpha(dark ? 44 : 142),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              Center(
+                child: Icon(
+                  icon,
+                  size: 21.5,
+                  color: color,
+                  shadows: AppStyles.inkGlow(color),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -3636,49 +3316,24 @@ class _BackCircle extends StatelessWidget {
   const _BackCircle();
 
   @override
-  Widget build(BuildContext context) {
-    final bool dark = Theme.of(context).brightness == Brightness.dark;
-
-    return _Pressable(
-      onTap: () => Navigator.of(context).maybePop(),
-
-      semanticLabel: 'Back',
-
-      borderRadius: BorderRadius.circular(24),
-
-      feedbackColor: appleBlue,
-
-      child: Container(
-        width: 48,
-        height: 48,
-
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-
-          gradient: dark
-              ? const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: <Color>[Color(0xFF1B2432), Color(0xFF0D131C)],
-                )
-              : const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: <Color>[Color(0xFFFFFFFF), Color(0xFFF0F4F8)],
-                ),
-
-          border: Border.all(
-            color: appleBlue.withAlpha(dark ? 62 : 34),
-            width: UIConstants.borderWidth,
-          ),
-
-          boxShadow: AppStyles.jewelDepth(context, appleBlue),
-        ),
-
-        child: const Icon(Icons.chevron_left_rounded, color: appleBlue),
+  Widget build(BuildContext context) => _Pressable(
+    onTap: () => Navigator.of(context).maybePop(),
+    semanticLabel: 'Back',
+    borderRadius: BorderRadius.circular(24),
+    child: Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Theme.of(context).brightness == Brightness.dark
+            ? Colors.white.withAlpha(13)
+            : Colors.black.withAlpha(10),
+        border: Border.fromBorderSide(AppStyles.hairline(context)),
+        boxShadow: AppStyles.surfaceDepth(context),
       ),
-    );
-  }
+      child: const Icon(Icons.chevron_left_rounded),
+    ),
+  );
 }
 
 class _BounceTextButton extends StatelessWidget {
@@ -3794,24 +3449,9 @@ class _SearchBox extends StatefulWidget {
 
 class _SearchBoxState extends State<_SearchBox> {
   Timer? _debounce;
-  late final FocusNode _focusNode;
-
-  @override
-  void initState() {
-    super.initState();
-
-    _focusNode = FocusNode()..addListener(_handleFocusChanged);
-  }
-
-  void _handleFocusChanged() {
-    if (mounted) {
-      setState(() {});
-    }
-  }
 
   void _onChanged(String value) {
     _debounce?.cancel();
-
     _debounce = Timer(
       const Duration(milliseconds: 140),
       () => widget.onChanged(value),
@@ -3820,116 +3460,58 @@ class _SearchBoxState extends State<_SearchBox> {
 
   void _onSubmitted(String value) {
     _debounce?.cancel();
-
     widget.onChanged(value);
-
     FocusManager.instance.primaryFocus?.unfocus();
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
-
-    _focusNode
-      ..removeListener(_handleFocusChanged)
-      ..dispose();
-
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final bool dark = Theme.of(context).brightness == Brightness.dark;
-
-    final bool focused = _focusNode.hasFocus;
-
-    final BorderRadius radius = BorderRadius.circular(22);
-
-    final Color edge = focused
-        ? widget.color.withAlpha(dark ? 138 : 104)
-        : Color.alphaBlend(
-            widget.color.withAlpha(dark ? 38 : 25),
-            dark ? Colors.white.withAlpha(28) : const Color(0xE8FFFFFF),
-          );
-
-    return AnimatedContainer(
-      duration: AppMotion.reduce(context)
-          ? Duration.zero
-          : const Duration(milliseconds: 180),
-
-      curve: UIConstants.motionOut,
-
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-
-          colors: dark
-              ? const <Color>[Color(0xFF1A2230), Color(0xFF0D131D)]
-              : const <Color>[Color(0xFFFFFFFF), Color(0xFFF0F4F8)],
-        ),
-
-        borderRadius: radius,
-
-        border: Border.all(color: edge, width: focused ? 1.25 : .8),
-
-        boxShadow: focused
-            ? AppStyles.glow(context, widget.color, strong: true)
-            : AppStyles.glow(context, widget.color),
+    final OutlineInputBorder idleBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(UIConstants.inputRadius),
+      borderSide: AppStyles.hairline(context, accent: widget.color),
+    );
+    return TextField(
+      onChanged: _onChanged,
+      onSubmitted: _onSubmitted,
+      onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+      cursorColor: widget.color,
+      textInputAction: TextInputAction.search,
+      style: TextStyle(
+        color: widget.color,
+        fontSize: 16,
+        fontWeight: FontWeight.w700,
+        shadows: AppStyles.inkGlow(widget.color),
       ),
-
-      child: TextField(
-        focusNode: _focusNode,
-
-        onChanged: _onChanged,
-
-        onSubmitted: _onSubmitted,
-
-        onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
-
-        cursorColor: widget.color,
-
-        textInputAction: TextInputAction.search,
-
-        style: TextStyle(
+      decoration: InputDecoration(
+        hintText: widget.hint,
+        filled: true,
+        fillColor: widget.color.withAlpha(dark ? 12 : 8),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 20,
+          vertical: 16,
+        ),
+        hintStyle: TextStyle(
+          color: widget.color.withAlpha(160),
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+        ),
+        prefixIcon: Icon(
+          Icons.search_rounded,
           color: widget.color,
-          fontSize: 16.5,
-          fontWeight: FontWeight.w700,
           shadows: AppStyles.inkGlow(widget.color),
         ),
-
-        decoration: InputDecoration(
-          hintText: widget.hint,
-
-          filled: true,
-
-          fillColor: Colors.transparent,
-
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 20,
-            vertical: 18,
-          ),
-
-          hintStyle: TextStyle(
-            color: widget.color.withAlpha(dark ? 176 : 164),
-            fontSize: 16.5,
-            fontWeight: FontWeight.w600,
-          ),
-
-          prefixIcon: Icon(
-            Icons.search_rounded,
-            color: widget.color,
-            size: 25,
-            shadows: AppStyles.inkGlow(widget.color, strong: true),
-          ),
-
-          prefixIconConstraints: const BoxConstraints(minWidth: 54),
-
-          border: InputBorder.none,
-
-          enabledBorder: InputBorder.none,
-
-          focusedBorder: InputBorder.none,
+        prefixIconConstraints: const BoxConstraints(minWidth: 48),
+        enabledBorder: idleBorder,
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(UIConstants.inputRadius),
+          borderSide: BorderSide(color: widget.color, width: 1.4),
         ),
       ),
     );
@@ -4105,30 +3687,18 @@ class _AmountHero extends StatelessWidget {
     required this.label,
     required this.value,
     required this.color,
-    this.secondaryLabel,
-    this.secondaryValue,
   });
 
   final String label;
   final String value;
   final Color color;
-  final String? secondaryLabel;
-  final String? secondaryValue;
 
   @override
   Widget build(BuildContext context) {
-    // UNIFIED_MILK_AMOUNT_HERO_V1
-    //
-    // This stays the single visual source of truth for amount hero cards.
-    // Existing Credit / Salary / Expense cards take the original single-value
-    // path unchanged. Milk optionally adds one compact secondary statistic.
     final bool dark = Theme.of(context).brightness == Brightness.dark;
-    final bool hasSecondary = secondaryLabel != null && secondaryValue != null;
-
     final Color textColor = dark
         ? Color.lerp(Colors.white, color, .72)!
         : Color.lerp(const Color(0xFF06111F), color, .60)!;
-
     final List<Color> background = dark
         ? <Color>[
             Color.lerp(darkGlassTop, color, .21)!.withAlpha(232),
@@ -4148,14 +3718,6 @@ class _AmountHero extends StatelessWidget {
             )!.withAlpha(218),
             Color.lerp(Colors.white, color, .13)!.withAlpha(194),
           ];
-
-    final Widget primary = _HeroValue(
-      label: label,
-      value: value,
-      color: textColor,
-      glow: color,
-    );
-
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -4169,68 +3731,12 @@ class _AmountHero extends StatelessWidget {
         border: AppStyles.glassBorder(context),
         boxShadow: AppStyles.glow(context, color, strong: true),
       ),
-      child: hasSecondary
-          ? Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: <Widget>[
-                Expanded(flex: 7, child: primary),
-                const SizedBox(width: 14),
-                Container(
-                  width: 1,
-                  height: 54,
-                  color: color.withAlpha(dark ? 54 : 25),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  flex: 4,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: <Widget>[
-                      Text(
-                        secondaryLabel!.toUpperCase(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.right,
-                        style: TextStyle(
-                          color: textColor,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: .75,
-                          shadows: <Shadow>[
-                            Shadow(color: color.withAlpha(68), blurRadius: 10),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          secondaryValue!,
-                          maxLines: 1,
-                          softWrap: false,
-                          style: TextStyle(
-                            color: textColor,
-                            fontSize: 19,
-                            fontWeight: FontWeight.w700,
-                            fontFeatures: AppStyles.tabularFigures,
-                            letterSpacing: -.35,
-                            shadows: <Shadow>[
-                              Shadow(
-                                color: color.withAlpha(82),
-                                blurRadius: 13,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            )
-          : primary,
+      child: _HeroValue(
+        label: label,
+        value: value,
+        color: textColor,
+        glow: color,
+      ),
     );
   }
 }
@@ -4295,7 +3801,6 @@ class _ListCard extends StatelessWidget {
     this.onTap,
     this.destinationBuilder,
     this.trailing,
-    this.trailingLabel,
     this.onDelete,
     this.avatarText,
   }) : assert(
@@ -4310,218 +3815,112 @@ class _ListCard extends StatelessWidget {
   final VoidCallback? onTap;
   final WidgetBuilder? destinationBuilder;
   final String? trailing;
-  final String? trailingLabel;
-  // CREDIT_LIST_STATUS_COLUMN_V2
   final VoidCallback? onDelete;
   final String? avatarText;
 
   @override
   Widget build(BuildContext context) {
-    final bool dark = Theme.of(context).brightness == Brightness.dark;
-
-    final BorderRadius radius = BorderRadius.circular(28);
-
     Widget buildCard(VoidCallback? action) => _Pressable(
       onTap: action,
-      borderRadius: radius,
+      borderRadius: BorderRadius.circular(UIConstants.cardRadius),
       feedbackColor: color,
-
       child: _GlassCard(
-        borderRadius: 28,
-
-        padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 15),
-
+        borderRadius: UIConstants.cardRadius,
+        padding: UIConstants.compactCardPadding,
         accentColor: color,
-        tintColor: color,
         shadowColor: color,
-
         child: Row(
           children: <Widget>[
             Container(
-              width: 52,
-              height: 52,
-
+              width: 44,
+              height: 44,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-
-                  colors: dark
-                      ? <Color>[
-                          Color.lerp(const Color(0xFF1B2432), color, .18)!,
-                          Color.lerp(const Color(0xFF0D131C), color, .10)!,
-                        ]
-                      : <Color>[
-                          Color.lerp(Colors.white, color, .16)!,
-                          Color.lerp(const Color(0xFFF0F4F8), color, .085)!,
-                        ],
+                  colors: <Color>[color.withAlpha(34), color.withAlpha(16)],
                 ),
-
-                borderRadius: BorderRadius.circular(18),
-
-                border: Border.all(
-                  color: color.withAlpha(dark ? 102 : 84),
-                  width: UIConstants.borderWidth,
+                borderRadius: BorderRadius.circular(UIConstants.compactRadius),
+                border: Border.fromBorderSide(
+                  AppStyles.hairline(context, accent: color, active: true),
                 ),
-
                 boxShadow: AppStyles.jewelDepth(context, color),
               ),
-
               child: avatarText == null
                   ? Icon(
                       icon,
                       color: color,
-                      size: 22,
-                      shadows: AppStyles.inkGlow(color, strong: true),
+                      size: 20,
+                      shadows: AppStyles.inkGlow(color),
                     )
                   : Center(
                       child: Text(
                         avatarText!,
                         style: TextStyle(
                           color: color,
-                          fontSize: 21,
-                          fontWeight: FontWeight.w800,
-                          shadows: AppStyles.inkGlow(color, strong: true),
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          shadows: AppStyles.inkGlow(color),
                         ),
                       ),
                     ),
             ),
-
             const SizedBox(width: 16),
-
             Expanded(
               child: Column(
-                mainAxisSize: MainAxisSize.min,
-
                 crossAxisAlignment: CrossAxisAlignment.start,
-
                 children: <Widget>[
                   Text(
                     title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-
                     style: TextStyle(
                       color: color,
-                      fontSize: 17.5,
-                      height: 1.05,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -.25,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
                       shadows: AppStyles.inkGlow(color),
                     ),
                   ),
-
-                  const SizedBox(height: 6),
-
+                  const SizedBox(height: 4),
                   Text(
                     subtitle,
-
                     maxLines: 1,
-
                     overflow: TextOverflow.ellipsis,
-
                     style: TextStyle(
-                      color: color.withAlpha(dark ? 205 : 188),
-                      fontSize: 13.5,
-                      height: 1.15,
-                      fontWeight: FontWeight.w700,
+                      color: color.withAlpha(190),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ],
               ),
             ),
-
             if (trailing != null) ...<Widget>[
-              const SizedBox(width: 10),
-
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 118),
-
-                child: trailingLabel == null
-                    ? FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          trailing!,
-                          maxLines: 1,
-                          softWrap: false,
-                          style: TextStyle(
-                            color: color,
-                            fontSize: 19,
-                            fontWeight: FontWeight.w800,
-                            fontFeatures: AppStyles.tabularFigures,
-                            letterSpacing: -.35,
-                            shadows: AppStyles.inkGlow(color, strong: true),
-                          ),
-                        ),
-                      )
-                    : Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: <Widget>[
-                          Text(
-                            trailingLabel!,
-                            maxLines: 1,
-                            softWrap: false,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.right,
-                            style: TextStyle(
-                              color: color.withAlpha(dark ? 218 : 198),
-                              fontSize: 10.5,
-                              height: 1,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: .68,
-                              shadows: AppStyles.inkGlow(color),
-                            ),
-                          ),
-
-                          const SizedBox(height: 5),
-
-                          FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerRight,
-                            child: Text(
-                              trailing!,
-                              maxLines: 1,
-                              softWrap: false,
-                              style: TextStyle(
-                                color: color,
-                                fontSize: 19,
-                                height: 1,
-                                fontWeight: FontWeight.w800,
-                                fontFeatures: AppStyles.tabularFigures,
-                                letterSpacing: -.35,
-                                shadows: AppStyles.inkGlow(color, strong: true),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+              const SizedBox(width: 8),
+              Text(
+                trailing!,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: AppStyles.tabularFigures,
+                  shadows: AppStyles.inkGlow(color),
+                ),
               ),
             ],
-
             if (onDelete != null)
               Padding(
                 padding: const EdgeInsets.only(left: 9),
-
                 child: _DeleteActionButton(
                   onTap: onDelete!,
                   semanticLabel: 'Delete $title',
                 ),
               )
             else if (action != null)
-              Padding(
-                padding: const EdgeInsets.only(left: 4),
-
-                child: Icon(
-                  Icons.chevron_right_rounded,
-
-                  size: 28,
-
-                  color: color.withAlpha(dark ? 190 : 166),
-
-                  shadows: AppStyles.inkGlow(color),
-                ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: color.withAlpha(150),
+                shadows: AppStyles.inkGlow(color),
               ),
           ],
         ),
@@ -4534,8 +3933,7 @@ class _ListCard extends StatelessWidget {
             destinationBuilder: destinationBuilder!,
             sourceBuilder: (VoidCallback action) => buildCard(action),
           );
-
-    return Padding(padding: const EdgeInsets.only(bottom: 14), child: card);
+    return Padding(padding: const EdgeInsets.only(bottom: 12), child: card);
   }
 }
 
@@ -4901,13 +4299,6 @@ String _displayDate(dynamic value) {
       : DateFormat('dd MMM yyyy').format(date);
 }
 
-String _displayDay(dynamic value) {
-  final DateTime? date = LedgerMath.date(value);
-  return date == null ? '—' : DateFormat('dd').format(date);
-}
-
-// LAST_ENTRY_DAY_ONLY_V1
-
 String _money(dynamic value) {
   final double number = LedgerMath.number(value).abs();
   return '₹${NumberFormat('#,##,##0', 'en_IN').format(number.round())}';
@@ -4987,7 +4378,20 @@ class _AiHubButton extends StatelessWidget {
             color: Colors.white.withAlpha(dark ? 48 : 124),
             width: .8,
           ),
-          boxShadow: AppStyles.jewelDepth(context, const Color(0xFF7957E8)),
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: const Color(0xFF7957E8).withAlpha(dark ? 76 : 54),
+              blurRadius: 18,
+              spreadRadius: -5,
+              offset: const Offset(0, 6),
+            ),
+            BoxShadow(
+              color: Colors.black.withAlpha(dark ? 34 : 12),
+              blurRadius: 6,
+              spreadRadius: -2,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Stack(
           fit: StackFit.expand,
@@ -5124,8 +4528,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 GridView.count(
                   crossAxisCount: 2,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
+                  crossAxisSpacing: 13,
+                  mainAxisSpacing: 13,
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   clipBehavior: Clip.none,
@@ -5162,12 +4566,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   destinationBuilder: (_) => PartyLedgerScreen(sync: sync),
                   sourceBuilder: (VoidCallback openRoute) => _Pressable(
                     onTap: openRoute,
-                    borderRadius: BorderRadius.circular(28),
+                    borderRadius: BorderRadius.circular(24),
                     feedbackColor: const Color(0xFF9333EA),
                     child: const _GlassCard(
-                      borderRadius: 28,
                       shadowColor: Color(0xFF9333EA),
-                      tintColor: Color(0xFF9333EA),
                       child: Row(
                         children: <Widget>[
                           _LedgerIcon(
@@ -5272,55 +4674,39 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _GlassCard(
-    padding: const EdgeInsets.all(18),
-
-    borderRadius: 28,
-
+    padding: UIConstants.compactCardPadding,
+    borderRadius: UIConstants.cardRadius,
     tintColor: color,
-
     shadowColor: color,
-
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-
       mainAxisAlignment: MainAxisAlignment.center,
-
       children: <Widget>[
-        _LedgerIcon(icon: icon, color: color, size: 52),
-
+        _LedgerIcon(icon: icon, color: color, size: 46),
         const Spacer(),
-
         Text(
           label.toUpperCase(),
-
           maxLines: 1,
-
           overflow: TextOverflow.ellipsis,
-
           style: const TextStyle(
             color: systemGray,
-            fontSize: 10.5,
-            fontWeight: FontWeight.w700,
-            letterSpacing: .72,
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            letterSpacing: .65,
           ),
         ),
-
-        const SizedBox(height: 5),
-
+        const SizedBox(height: 4),
         FittedBox(
           fit: BoxFit.scaleDown,
-
           alignment: Alignment.centerLeft,
-
           child: Text(
             value,
-
             style: TextStyle(
               color: color,
-              fontSize: 27,
-              fontWeight: FontWeight.w800,
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
               fontFeatures: AppStyles.tabularFigures,
-              letterSpacing: -.8,
+              letterSpacing: -.7,
               shadows: AppStyles.inkGlow(color, strong: true),
             ),
           ),
@@ -5340,63 +4726,47 @@ class _LedgerIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool dark = Theme.of(context).brightness == Brightness.dark;
-
-    final double radius = size * .33;
-
+    final double radius = size * .32;
     return Container(
       width: size,
       height: size,
-
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
-
           end: Alignment.bottomRight,
-
-          colors: dark
-              ? <Color>[
-                  Color.lerp(const Color(0xFF1B2432), color, .18)!,
-                  Color.lerp(const Color(0xFF0D131C), color, .09)!,
-                ]
-              : <Color>[
-                  Color.lerp(Colors.white, color, .17)!,
-                  Color.lerp(const Color(0xFFF0F4F8), color, .09)!,
-                ],
+          colors: <Color>[
+            color.withAlpha(dark ? 48 : 34),
+            color.withAlpha(dark ? 26 : 16),
+          ],
         ),
-
         borderRadius: BorderRadius.circular(radius),
-
         border: Border.all(
-          color: color.withAlpha(dark ? 104 : 86),
+          color: color.withAlpha(dark ? 88 : 72),
           width: UIConstants.borderWidth,
         ),
-
         boxShadow: AppStyles.jewelDepth(context, color),
       ),
-
       child: Stack(
         fit: StackFit.expand,
-
         children: <Widget>[
           Positioned(
             left: radius * .55,
             right: radius * .55,
-            top: 1,
+            top: 0,
             height: 1,
-
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: <Color>[
                     Colors.transparent,
-                    Colors.white.withAlpha(dark ? 78 : 232),
+                    Colors.white.withAlpha(dark ? 68 : 178),
                     Colors.transparent,
                   ],
                 ),
               ),
             ),
           ),
-
           Center(
             child: Icon(
               icon,
@@ -5488,7 +4858,8 @@ class _PartyLedgerScreenState extends State<PartyLedgerScreen> {
                         : 'TO PAY';
                     return _ListCard(
                       title: item.name,
-                      subtitle: label,
+                      subtitle:
+                          '$label • Milk ${_signedMoney(item.milk)} • Credit ${_signedMoney(item.credit)}',
                       icon: Icons.person_rounded,
                       color: color,
                       avatarText: item.name.trim().isEmpty
@@ -5674,12 +5045,14 @@ class _MilkScreenState extends State<MilkScreen> {
                 )
               else
                 ...names.map((String name) {
+                  final Map<String, dynamic> profile = _map(database[name]);
                   final MilkTotals totals =
                       projection.milkTotalsByProfile[name]!;
                   final Color color = _tone(totals.netAmount);
                   return _ListCard(
                     title: name,
-                    subtitle: '${totals.netKg.abs().toStringAsFixed(2)} KG',
+                    subtitle:
+                        '${totals.netKg >= 0 ? 'Given' : 'Taken'} ${totals.netKg.abs().toStringAsFixed(2)} KG • ${profile['rate'] ?? LedgerMath.defaultMilkRate}/KG',
                     icon: Icons.water_drop_rounded,
                     color: color,
                     avatarText: name.trim().isEmpty
@@ -6097,17 +5470,10 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
                     }),
                   ),
                   const SizedBox(height: 16),
-                  _AmountHero(
-                    label: totals.netAmount > 0
-                        ? 'To Receive'
-                        : totals.netAmount < 0
-                        ? 'To Pay'
-                        : 'Net Balance',
-                    value: _signedMoney(totals.netAmount),
+                  _MilkDetailHero(
+                    amount: _signedMoney(totals.netAmount),
+                    totalKg: '${totals.netKg.abs().toStringAsFixed(2)} KG',
                     color: color,
-                    secondaryLabel: 'Total Milk',
-                    secondaryValue:
-                        '${totals.netKg.abs().toStringAsFixed(2)} KG',
                   ),
                   const SizedBox(height: 24),
                   _SectionTitle(
@@ -6177,6 +5543,147 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
       );
     },
   );
+}
+
+class _MilkDetailHero extends StatelessWidget {
+  const _MilkDetailHero({
+    required this.amount,
+    required this.totalKg,
+    required this.color,
+  });
+
+  final String amount;
+  final String totalKg;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+    final Color surface = dark ? const Color(0xFF121720) : Colors.white;
+    return Container(
+      constraints: const BoxConstraints(minHeight: 150),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 23),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[
+            color.withAlpha(dark ? 34 : 19),
+            surface,
+            color.withAlpha(dark ? 19 : 10),
+          ],
+          stops: const <double>[0, .58, 1],
+        ),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: color.withAlpha(dark ? 72 : 54)),
+        boxShadow: dark
+            ? const <BoxShadow>[]
+            : <BoxShadow>[
+                BoxShadow(
+                  color: color.withAlpha(34),
+                  blurRadius: 34,
+                  spreadRadius: 1,
+                  offset: const Offset(0, 14),
+                ),
+              ],
+      ),
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          final bool compact = constraints.maxWidth < 330;
+          return Row(
+            children: <Widget>[
+              if (!compact) ...<Widget>[
+                _LedgerIcon(
+                  icon: Icons.water_drop_rounded,
+                  color: color,
+                  size: 54,
+                ),
+                const SizedBox(width: 16),
+              ],
+              Expanded(
+                flex: 6,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      'MONTH BILL',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: .85,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        amount,
+                        style: TextStyle(
+                          color: color,
+                          fontSize: compact ? 34 : 39,
+                          height: 1,
+                          fontWeight: FontWeight.w900,
+                          fontFeatures: AppStyles.tabularFigures,
+                          letterSpacing: -1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 82,
+                margin: const EdgeInsets.symmetric(horizontal: 14),
+                color: color.withAlpha(dark ? 48 : 28),
+              ),
+              Expanded(
+                flex: 4,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: <Widget>[
+                    Text(
+                      'TOTAL MILK',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: .75,
+                      ),
+                    ),
+                    const SizedBox(height: 9),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        totalKg,
+                        style: TextStyle(
+                          color: color,
+                          fontSize: compact ? 20 : 23,
+                          fontWeight: FontWeight.w900,
+                          fontFeatures: AppStyles.tabularFigures,
+                          letterSpacing: -.45,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 }
 
 class _SoftShareButton extends StatelessWidget {
@@ -6286,7 +5793,15 @@ class _MilkRecordsTable extends StatelessWidget {
         border: Border.all(
           color: dark ? Colors.white.withAlpha(18) : appleBlue.withAlpha(16),
         ),
-        boxShadow: AppStyles.surfaceDepth(context),
+        boxShadow: dark
+            ? const <BoxShadow>[]
+            : <BoxShadow>[
+                BoxShadow(
+                  color: const Color(0xFF183960).withAlpha(16),
+                  blurRadius: 30,
+                  offset: const Offset(0, 13),
+                ),
+              ],
       ),
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
@@ -6622,7 +6137,15 @@ class _LedgerTableCard extends StatelessWidget {
         border: Border.all(
           color: dark ? Colors.white.withAlpha(18) : appleBlue.withAlpha(16),
         ),
-        boxShadow: AppStyles.surfaceDepth(context),
+        boxShadow: dark
+            ? const <BoxShadow>[]
+            : <BoxShadow>[
+                BoxShadow(
+                  color: const Color(0xFF183960).withAlpha(16),
+                  blurRadius: 30,
+                  offset: const Offset(0, 13),
+                ),
+              ],
       ),
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
@@ -7524,21 +7047,19 @@ class _CreditScreenState extends State<CreditScreen> {
               else
                 ...groups.map((CreditPartySummary group) {
                   final Color color = _tone(group.net);
-                  final String statusLabel = group.net > 0
-                      ? 'TO RECEIVE'
-                      : group.net < 0
-                      ? 'TO PAY'
-                      : 'SETTLED';
-
                   return _ListCard(
                     title: group.name,
-                    subtitle: 'Last entry: ${_displayDay(group.lastDate)}',
+                    subtitle:
+                        '${group.net > 0
+                            ? 'To Receive'
+                            : group.net < 0
+                            ? 'To Pay'
+                            : 'Settled'} • Last ${_displayDate(group.lastDate)}',
                     icon: Icons.person_rounded,
                     color: color,
                     avatarText: group.name.trim().isEmpty
                         ? 'C'
                         : group.name.trim()[0].toUpperCase(),
-                    trailingLabel: statusLabel,
                     trailing: _signedMoney(group.net),
                     destinationBuilder: (_) => CreditDetailScreen(
                       sync: widget.sync,
@@ -8011,15 +7532,16 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                 color: moduleColor,
               ),
               const SizedBox(height: 24),
-              const _SectionTitle('Categories', color: appleBlue),
+              const _SectionTitle('Categories'),
               if (groups.isEmpty)
                 const _EmptyState(premiumExpenseIcon, 'No expenses this month')
               else
                 ...groups.map(
                   (ExpenseCategorySummary group) => _ListCard(
                     title: group.category,
-                    // EXPENSE_LAST_ENTRY_ONLY_V1
-                    subtitle: 'Last entry: ${_displayDay(group.lastDate)}',
+                    subtitle: group.monthTotal > 0
+                        ? 'This month • Last ${_displayDate(group.lastDate)}'
+                        : 'No expense this month • Last ${_displayDate(group.lastDate)}',
                     icon: premiumExpenseIcon,
                     color: semanticRed,
                     trailing: group.monthTotal > 0
@@ -9780,7 +9302,6 @@ class _ExternalAiReadyCard extends StatelessWidget {
         color: dark ? purple.withAlpha(28) : purple.withAlpha(14),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: purple.withAlpha(dark ? 78 : 48)),
-        boxShadow: AppStyles.glow(context, purple),
       ),
       child: Row(
         children: <Widget>[
@@ -9863,7 +9384,6 @@ class _AiBatchProgressCard extends StatelessWidget {
         color: dark ? appleBlue.withAlpha(25) : appleBlue.withAlpha(12),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: appleBlue.withAlpha(dark ? 68 : 42)),
-        boxShadow: AppStyles.glow(context, appleBlue),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

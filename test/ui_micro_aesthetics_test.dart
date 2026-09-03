@@ -86,23 +86,27 @@ void main() {
     expect(source, contains('this.icon = Icons.add_rounded'));
 
     // Direct manipulation stays brief, tactile and accessibility-aware.
-    expect(source, contains('Duration pressIn = Duration(milliseconds: 70)'));
+    expect(source, contains('Duration pressIn = Duration(milliseconds: 55)'));
+    expect(
+      source,
+      contains('Duration pressReengageFloor = Duration(milliseconds: 24)'),
+    );
     expect(source, contains('Duration pressOut = Duration(milliseconds: 210)'));
     expect(source, contains('curve: UIConstants.motionOut'));
     expect(source, contains('lowerBound: -.18'));
     expect(source, contains("import 'package:flutter/physics.dart';"));
     expect(source, contains('static const SpringDescription pressSpring'));
-    expect(source, contains('stiffness: 520'));
-    expect(source, contains('damping: 30'));
+    expect(source, contains('stiffness: 460'));
+    expect(source, contains('damping: 32'));
     expect(source, contains('SpringSimulation('));
     expect(source, contains('_pressController.velocity'));
     expect(source, contains('feedback.clamp(0.0, 1.0).toDouble()'));
-    expect(source, contains('offset: Offset(0, motion * 1.25)'));
-    expect(source, contains('scale: 1 - (motion * .014)'));
-    expect(source, contains('_touchAlignment = Alignment(x, y)'));
-    expect(source, contains('..setEntry(3, 2, .0012)'));
-    expect(source, contains('..rotateX(-_touchAlignment.y * cardTilt)'));
-    expect(source, contains('..rotateY(_touchAlignment.x * cardTilt)'));
+    expect(source, contains('offset: Offset(0, motion * 1.30)'));
+    expect(source, contains('scale: 1 - (motion * .017)'));
+    expect(source, contains('_touchAlignment = nextAlignment'));
+    expect(source, contains('..setEntry(3, 2, .0013)'));
+    expect(source, contains('..rotateX(-spatialAlignment.y * cardTilt)'));
+    expect(source, contains('..rotateY(spatialAlignment.x * cardTilt)'));
     expect(source, contains('gradient: RadialGradient('));
     expect(source, contains('HapticFeedback.lightImpact();'));
     expect(source, contains('abstract final class AppMotion'));
@@ -116,9 +120,76 @@ void main() {
     );
     expect(source, isNot(contains('.disableAnimations ?? false')));
     expect(source, contains('oldWidget.onTap != null && widget.onTap == null'));
+    expect(source, contains('oldWidget.animatePress && !widget.animatePress'));
+    expect(source, contains('void _resetPressFeedback()'));
+    expect(
+      source,
+      contains('bool _updateTouchAlignment(Offset localPosition)'),
+    );
+    expect(
+      source,
+      contains('static const double _touchAlignmentEpsilonSquared = .0004'),
+    );
+    expect(source, contains('deltaX * deltaX + deltaY * deltaY'));
+    expect(source, contains('void _trackTouch(TapMoveDetails details)'));
+    expect(source, contains('onTapMove:'));
+    expect(source, contains(': _trackTouch,'));
     expect(source, contains('this.feedbackColor'));
     expect(source, contains('feedbackColor: color'));
     expect(source, contains('feedbackColor: diaryOrange'));
+
+    final int pressableStart = source.indexOf('class _PressableState');
+    final int pressableEnd = source.indexOf('class _GlassCard', pressableStart);
+    expect(pressableStart, greaterThanOrEqualTo(0));
+    expect(pressableEnd, greaterThan(pressableStart));
+    final String pressableSource = source.substring(
+      pressableStart,
+      pressableEnd,
+    );
+    expect(pressableSource, contains('final double remainingTravel ='));
+    expect(
+      pressableSource,
+      contains('duration: Duration(microseconds: adaptiveMicros)'),
+    );
+    expect(
+      pressableSource,
+      contains('void _release({bool cancelled = false})'),
+    );
+    expect(
+      pressableSource,
+      contains('math.min(_pressController.velocity, 0.0)'),
+    );
+    expect(pressableSource, contains('late final Stopwatch _gestureClock'));
+    expect(pressableSource, contains('Offset _gestureVelocity = Offset.zero'));
+    expect(
+      pressableSource,
+      contains('void _sampleGestureVelocity(Offset localPosition)'),
+    );
+    expect(pressableSource, contains('Offset _freshGestureVelocity()'));
+    expect(pressableSource, contains('velocityResponsePerSecond = 32'));
+    expect(
+      pressableSource,
+      contains('math.exp(-velocityResponsePerSecond * elapsedSeconds)'),
+    );
+    expect(pressableSource, contains('easedFreshness = freshness * freshness'));
+    expect(pressableSource, contains('void didChangeDependencies()'));
+    expect(
+      pressableSource,
+      contains('Alignment _projectReleaseAlignment(Offset velocity)'),
+    );
+    expect(pressableSource, contains('double _releaseDepthVelocity('));
+    expect(pressableSource, contains('final double controllerVelocity ='));
+    expect(pressableSource, contains('.clamp(-2.5, 0.0)'));
+    expect(pressableSource, contains('final Alignment spatialAlignment ='));
+    expect(pressableSource, contains('_pressController.value.abs() <= .0001'));
+    expect(pressableSource, contains('releaseVelocity.abs() <= .0001'));
+    expect(
+      pressableSource.split('if (AppMotion.reduce(context)) {').length - 1,
+      greaterThanOrEqualTo(2),
+    );
+    expect(pressableSource, contains('() => _release(cancelled: true)'));
+    expect(pressableSource, isNot(contains('onLongPress:')));
+    expect(pressableSource, isNot(contains('_handleLongPress')));
 
     // Dashboard cards reveal once with a short, direction-neutral stagger.
     // Data-driven list rows deliberately avoid repeated decorative motion.
@@ -147,8 +218,57 @@ void main() {
 
     // Navigation and pull-to-refresh keep the snappier feedback model.
     expect(source, contains('duration: UIConstants.motion'));
+    expect(source, contains('Duration _adaptivePageDuration('));
+    expect(source, contains('math.sqrt(remainingPages)'));
+    expect(source, contains('duration: pageDuration'));
     expect(source, contains('RefreshIndicator.adaptive('));
     expect(source, contains('HapticFeedback.lightImpact();'));
+
+    // Navigation readiness must never desynchronize the selected tab and page.
+    final int readinessShellStart = source.indexOf(
+      'class _AppShellState extends State<AppShell>',
+    );
+    final int readinessShellEnd = source.indexOf(
+      'class _KeepAlivePage extends StatefulWidget',
+      readinessShellStart,
+    );
+    expect(readinessShellStart, greaterThanOrEqualTo(0));
+    expect(readinessShellEnd, greaterThan(readinessShellStart));
+    final String readinessShell = source.substring(
+      readinessShellStart,
+      readinessShellEnd,
+    );
+    expect(readinessShell, contains('bool _navCenterScheduled = false;'));
+    expect(
+      readinessShell,
+      contains(
+        'void _retryPageSelectionWhenAttached(int index, int generation)',
+      ),
+    );
+    expect(
+      readinessShell,
+      contains('WidgetsBinding.instance.addPostFrameCallback((_) {'),
+    );
+    expect(
+      readinessShell,
+      contains('_retryPageSelectionWhenAttached(index, generation);'),
+    );
+    expect(readinessShell, contains('void didChangeMetrics()'));
+    expect(readinessShell, contains('void _scheduleNavigationCenter()'));
+    expect(
+      readinessShell.split('_scheduleNavigationCenter();').length - 1,
+      greaterThanOrEqualTo(3),
+    );
+    expect(
+      readinessShell,
+      isNot(
+        contains(
+          'if (!_pageController.hasClients) {\n'
+          '      _programmaticPageTarget = null;\n'
+          '      return;',
+        ),
+      ),
+    );
 
     // Cross-system motion keeps auth handoffs calm and all route motion optional.
     expect(source, contains('class _RootStage extends StatelessWidget'));
@@ -306,6 +426,173 @@ void main() {
     expect(source, contains('final double reach = math.min(6.5'));
     expect(source, contains('..lineTo(inset, lowerTurn)'));
     expect(source, isNot(contains('..lineTo(0, size.height - r)')));
+
+    // UI comfort/accessibility v3: behavior improves without visual drift.
+    expect(source, contains('(event.buttons & kPrimaryButton) == 0'));
+    expect(source, contains('selected: active,'));
+    expect(source, contains("semanticLabel: 'Back',"));
+    expect(source, contains('liveRegion: true,'));
+    expect(source, contains('enabled: widget.onTap != null,'));
+    expect(source, contains('excludeFromSemantics: true,'));
+    expect(source, contains('onSubmitted: _onSubmitted,'));
+    expect(source, contains('position.viewportDimension / 2'));
+    expect(source, contains('(position.pixels - target).abs() < .5'));
+    expect(source, contains('int _settledPage = 0;'));
+    expect(source, contains('int? _programmaticPageTarget;'));
+    expect(source, contains('final int generation = ++_pageMotionGeneration'));
+    expect(
+      source,
+      contains('_finishProgrammaticPageMotion(index, generation)'),
+    );
+    expect(RegExp(r'active: _settledPage ==').allMatches(source), hasLength(7));
+    expect(source, isNot(contains('active: _tab ==')));
+    expect(source, contains('int _pageMotionGeneration = 0'));
+    expect(source, contains('bool _userPageDragActive = false'));
+    expect(source, contains('final Set<int> _dragHapticPages = <int>{}'));
+    expect(source, contains('_dragHapticPages.add(index)'));
+    expect(source, contains('_dragHapticPages.add(settledIndex)'));
+    expect(source, contains('_dragHapticPages.clear()'));
+    expect(source, contains('_pageMotionGeneration != generation'));
+    expect(source, contains('notification.dragDetails != null'));
+    expect(source, contains('NotificationListener<ScrollNotification>'));
+    expect(source, contains('_finishUserPageMotion()'));
+    expect(
+      source,
+      contains('class _LedgerPagePhysics extends PageScrollPhysics'),
+    );
+    expect(source, contains('mass: .78'));
+    expect(source, contains('stiffness: 300'));
+    expect(source, contains('damping: 30'));
+    expect(source, contains('physics: const _LedgerPagePhysics('));
+    expect(source, contains('if (_userPageDragActive) {'));
+    expect(source, contains('setState(() => _tab = index);'));
+    expect(
+      source,
+      contains('final int pageDistance = (index - currentPage).abs()'),
+    );
+    expect(source, contains('if (pageDistance > 1)'));
+    expect(source, contains('_pageController.jumpToPage(stagingPage)'));
+    expect(source, contains('!listEquals(oldDelegate.pulses, pulses)'));
+    expect(source, contains('_pageController.jumpToPage(index);'));
+    expect(source, contains('position.jumpTo(target);'));
+    expect(
+      source,
+      contains('final Duration navMotion = AppMotion.reduce(context)'),
+    );
+    expect(
+      source,
+      contains('Provide at most one of onTap or destinationBuilder.'),
+    );
+    expect(source, contains('? buildCard(onTap)'));
+    expect(source, isNot(contains('onTap: () {},')));
+
+    // Stable global feedback uses one persistent paint plane. Pending pointer
+    // intent and visible pulses stay out of the widget rebuild path entirely.
+    final int rippleStart = source.indexOf('class _GlobalTapRippleLayerState');
+    final int rippleEnd = source.indexOf(
+      'class _GlobalTapRipplePainter',
+      rippleStart,
+    );
+    expect(rippleStart, greaterThanOrEqualTo(0));
+    expect(rippleEnd, greaterThan(rippleStart));
+    final String rippleSource = source.substring(rippleStart, rippleEnd);
+    expect(rippleSource, isNot(contains('setState(')));
+    expect(
+      rippleSource,
+      contains('final List<_RipplePulse> _livePulses = <_RipplePulse>[];'),
+    );
+    expect(
+      rippleSource,
+      contains('final List<_RipplePulse> _pulses = <_RipplePulse>[];'),
+    );
+    expect(rippleSource, contains('final _RippleRepaintSignal _rippleRepaint'));
+    expect(rippleSource, contains('pulses: _pulses,'));
+    expect(rippleSource, contains('repaint: _rippleRepaint,'));
+    expect(rippleSource, contains('child: Stack('));
+    expect(rippleSource, isNot(contains('snapshot')));
+    expect(rippleSource, contains('widget.child,'));
+
+    // Swipe depth is a compositor concern; the live ledger screen below
+    // it remains its own repaint boundary so 60/90/120Hz transforms do
+    // not force every card and row to repaint on each gesture frame.
+    final int shellStart = source.indexOf(
+      'class _AppShellState extends State<AppShell>',
+    );
+    final int shellEnd = source.indexOf(
+      'class _KeepAlivePage extends StatefulWidget',
+      shellStart,
+    );
+    expect(shellStart, greaterThanOrEqualTo(0));
+    expect(shellEnd, greaterThan(shellStart));
+    final String shellSource = source.substring(shellStart, shellEnd);
+    expect(shellSource, contains('child: RepaintBoundary(child: child),'));
+    expect(shellSource, contains('bool? _reduceMotionActive;'));
+    expect(
+      shellSource,
+      contains('bool _reducedMotionSettleScheduled = false;'),
+    );
+    expect(shellSource, contains('void didChangeDependencies()'));
+    expect(shellSource, contains('if (reduceMotion && previous == false)'));
+    expect(shellSource, contains('void _scheduleReducedMotionSettle()'));
+    expect(shellSource, contains('void _settleReducedMotion()'));
+    expect(shellSource, contains('++_pageMotionGeneration;'));
+    expect(shellSource, contains('_programmaticPageTarget = target;'));
+    expect(shellSource, contains('_pageController.jumpToPage(target);'));
+    expect(shellSource, contains('_scrollNavigation(target);'));
+    // Root, delayed-scroll and export motion honor live platform accessibility.
+    final int rootMotionStart = source.indexOf(
+      'class _AarishDiaryAppState extends State<AarishDiaryApp>',
+    );
+    final int rootMotionEnd = source.indexOf(
+      'class _RootStage extends StatelessWidget',
+      rootMotionStart,
+    );
+    expect(rootMotionStart, greaterThanOrEqualTo(0));
+    expect(rootMotionEnd, greaterThan(rootMotionStart));
+    final String rootMotionSource = source.substring(
+      rootMotionStart,
+      rootMotionEnd,
+    );
+    expect(rootMotionSource, contains('with WidgetsBindingObserver'));
+    expect(rootMotionSource, contains('late bool _reduceMotion;'));
+    expect(
+      rootMotionSource,
+      contains('WidgetsBinding.instance.addObserver(this);'),
+    );
+    expect(
+      rootMotionSource,
+      contains('_reduceMotion = WidgetsBinding.instance.disableAnimations;'),
+    );
+    expect(rootMotionSource, contains('void didChangeAccessibilityFeatures()'));
+    expect(
+      rootMotionSource,
+      contains('WidgetsBinding.instance.removeObserver(this);'),
+    );
+    expect(rootMotionSource, contains('themeAnimationDuration: _reduceMotion'));
+    expect(
+      rootMotionSource,
+      isNot(
+        contains('themeAnimationDuration: const Duration(milliseconds: 300)'),
+      ),
+    );
+    expect(source, contains('if (!mounted || !_scroll.hasClients) return;'));
+    expect(source, contains('_scroll.jumpTo(target);'));
+    expect(
+      source,
+      contains(
+        'duration: AppMotion.reduce(context)\n'
+        '              ? Duration.zero\n'
+        '              : const Duration(milliseconds: 180)',
+      ),
+    );
+    expect(
+      source,
+      contains(
+        'duration: AppMotion.reduce(context)\n'
+        '            ? Duration.zero\n'
+        '            : const Duration(milliseconds: 220)',
+      ),
+    );
 
     // Brand/state color logic and Firebase integration must stay untouched.
     expect(source, contains("import 'firebase_sync.dart';"));
