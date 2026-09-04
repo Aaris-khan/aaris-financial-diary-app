@@ -1210,9 +1210,6 @@ class LedgerMath {
   LedgerMath._();
 
   static const double defaultMilkRate = 55;
-  static final RegExp _strictDatePattern = RegExp(
-    r'^(\d{4})-(\d{2})-(\d{2})$',
-  );
 
   static double number(dynamic value) {
     if (value is num) return value.isFinite ? value.toDouble() : 0;
@@ -1228,7 +1225,8 @@ class LedgerMath {
 
   static DateTime? strictDate(dynamic value) {
     final String raw = '${value ?? ''}'.trim();
-    final RegExpMatch? match = _strictDatePattern.firstMatch(raw);
+    final RegExpMatch? match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$')
+        .firstMatch(raw);
     if (match == null) return null;
     final int year = int.parse(match.group(1)!);
     final int month = int.parse(match.group(2)!);
@@ -1567,7 +1565,6 @@ class LedgerSyncService extends ChangeNotifier {
   int _revision = 0;
   int _lastFullAuditAt = 0;
   int _lastMetadataReadAt = 0;
-  int _sessionGeneration = 0;
   String _writerId = '';
   String? _activeUid;
   DatabaseReference? _appDataRef;
@@ -1606,32 +1603,14 @@ class LedgerSyncService extends ChangeNotifier {
   bool get syncing => _syncing;
   bool get darkMode => _darkMode;
   bool get isConnected => SyncConnectionPolicy.canContactServer(_connected);
-  bool get isOffline => _connected == false;
   int get pendingWrites => _outbox.length;
   Object? get lastError => _lastError;
-  int get sessionGeneration => _sessionGeneration;
   Map<String, dynamic> get state => _state;
-
-  bool isSessionCurrent(String uid, int generation) =>
-      !_disposed &&
-      uid.isNotEmpty &&
-      generation == _sessionGeneration &&
-      uid == _activeUid &&
-      auth.currentUser?.uid == uid;
   Map<String, dynamic>? _projectedState;
   LedgerProjection? _projection;
-  final ChangeNotifier _contentChanges = ChangeNotifier();
-
-  Listenable get contentChanges => _contentChanges;
 
   void _notify() {
     if (!_disposed) notifyListeners();
-  }
-
-  void _notifyContent() {
-    if (_disposed) return;
-    _contentChanges.notifyListeners();
-    notifyListeners();
   }
 
   void _invalidateProjectionCache() {
@@ -1746,9 +1725,6 @@ class LedgerSyncService extends ChangeNotifier {
       _flushTimer?.cancel();
       _reconcileTimer?.cancel();
       _retryTimer?.cancel();
-      // Every real account transition invalidates async work that originated
-      // from the previous authenticated UI tree, even before Flutter disposes it.
-      _sessionGeneration++;
       _activeUid = nextUid;
       _connected = null;
       _lastError = null;
@@ -1771,7 +1747,7 @@ class LedgerSyncService extends ChangeNotifier {
         _ledgerV2Ref = null;
         _connected = null;
         _booting = false;
-        _notifyContent();
+        _notify();
         return;
       }
 
@@ -1789,7 +1765,7 @@ class LedgerSyncService extends ChangeNotifier {
       _readDiaryProjectionCache(nextUid);
       _booting = false;
       _attachUserStreams(nextUid);
-      _notifyContent();
+      _notify();
       shouldReconcile = true;
     });
     if (shouldReconcile && !_disposed) {
@@ -2293,7 +2269,7 @@ class LedgerSyncService extends ChangeNotifier {
           }
           _lastError = null;
           applied = true;
-          _notifyContent();
+          _notify();
         });
         if (applied) return;
       } catch (error) {
@@ -2399,7 +2375,7 @@ class LedgerSyncService extends ChangeNotifier {
         _invalidateProjectionCache();
         _loadedDiaryMonthVersions[period] = source.cacheKey;
         _diaryMonthErrors.remove(period);
-        _notifyContent();
+        _notify();
       });
     } catch (error) {
       if (uid == _activeUid) {
@@ -2573,22 +2549,7 @@ class LedgerSyncService extends ChangeNotifier {
   }) async {
     if (writes.isEmpty) return;
 
-    // Capture mutation ownership before entering the serialization gate. A write
-    // queued by account A must never wake up later and execute as account B.
-    final String? callerUid = _activeUid;
-    final int callerGeneration = _sessionGeneration;
-    if (callerUid == null ||
-        callerUid.isEmpty ||
-        auth.currentUser?.uid != callerUid) {
-      throw const LedgerSyncException('Please sign in before saving data.');
-    }
-
     await _locked<void>(() async {
-      if (!isSessionCurrent(callerUid, callerGeneration)) {
-        throw const LedgerSyncException(
-          'Account changed before this save could start.',
-        );
-      }
       final Map<String, dynamic> expandedWrites = <String, dynamic>{};
 
       for (final MapEntry<String, dynamic> entry in writes.entries) {
@@ -2613,11 +2574,9 @@ class LedgerSyncService extends ChangeNotifier {
       if (_disposed) {
         throw const LedgerSyncException('Sync service is no longer available.');
       }
-      final String uid = callerUid;
-      if (!isSessionCurrent(uid, callerGeneration)) {
-        throw const LedgerSyncException(
-          'Account changed before this save could be committed.',
-        );
+      final String? uid = _activeUid;
+      if (uid == null || uid.isEmpty || auth.currentUser?.uid != uid) {
+        throw const LedgerSyncException('Please sign in before saving data.');
       }
       await _persistPendingServerAckLocked(uid);
       final Map<String, dynamic> nextState = LedgerCodec.normalizeState(_state);
@@ -2651,14 +2610,14 @@ class LedgerSyncService extends ChangeNotifier {
       // State and outbox are written as one Hive value. The UI is notified only
       // after this durable commit, eliminating the crash gap between both.
       await _persistEnvelope(uid, nextEnvelope);
-      if (!isSessionCurrent(uid, callerGeneration)) {
+      if (uid != _activeUid) {
         throw const LedgerSyncException('Account changed while saving.');
       }
       _state = nextState;
       _invalidateProjectionCache();
       _outbox = nextOutbox;
       _lastError = null;
-      _notifyContent();
+      _notify();
       _scheduleFlush(const Duration(milliseconds: 180));
     });
   }
@@ -3209,7 +3168,7 @@ class LedgerSyncService extends ChangeNotifier {
       _tableClocks = remoteTableClocks;
       _lastFullAuditAt = nextFullAuditAt;
       _lastError = null;
-      _notifyContent();
+      _notify();
       return _flushLocked();
     } catch (error) {
       _lastError = error;
@@ -3264,7 +3223,6 @@ class LedgerSyncService extends ChangeNotifier {
     if (diaryProjectionSubscription != null) {
       unawaited(diaryProjectionSubscription.cancel());
     }
-    _contentChanges.dispose();
     super.dispose();
   }
 }

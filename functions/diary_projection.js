@@ -62,11 +62,19 @@ function diaryClockHash(metadata) {
   return sourceHash(canonicalDiaryClocks(metadata));
 }
 
+function safeDiaryEntryId(entryId) {
+  return typeof entryId === 'string' &&
+    entryId.length > 0 &&
+    entryId.length <= 180 &&
+    !UNSAFE_OBJECT_KEYS.has(entryId) &&
+    !/[.#$\[\]\u0000-\u001f\u007f]/.test(entryId);
+}
+
 function normalizeSourceEntry(value, entryId) {
-  if (!isPlainObject(value)) return null;
+  if (!isPlainObject(value) || !safeDiaryEntryId(entryId)) return null;
   const result = {};
   for (const [key, item] of Object.entries(value)) {
-    if (!RESERVED_FIELDS.has(key)) result[key] = item;
+    if (!RESERVED_FIELDS.has(key)) result[key] = stableValue(item);
   }
   result.id = entryId;
   return result;
@@ -88,13 +96,17 @@ function forceProjectedEntry(storedValue, sourceValue, entryId) {
   const source = normalizeSourceEntry(sourceValue, entryId);
   const nextHash = sourceHash(source);
   const stored = isPlainObject(storedValue) ? storedValue : {};
+  // Missing source hashes come from legacy/incomplete projection rows. Treat
+  // them as unknown rather than as the hash of a deleted source. Otherwise a
+  // source deletion can look idempotent and leave the stale projected row
+  // alive forever until a full rebuild happens.
   const currentHash = typeof stored._sourceHash === 'string'
     ? stored._sourceHash
-    : sourceHash(null);
+    : null;
   const currentVersion = Number.isSafeInteger(stored._version)
     ? stored._version
     : 0;
-  if (currentHash === nextHash) return stored;
+  if (currentHash !== null && currentHash === nextHash) return stored;
   const version = currentVersion + 1;
   if (source === null) {
     return {
@@ -136,11 +148,7 @@ function safeDiaryPath(path) {
   if (typeof path !== 'string' || path.length > 400) return null;
   const parts = path.split('/');
   if (parts.length !== 2 || parts[0] !== 'diaryDB') return null;
-  const id = parts[1];
-  if (!id || id.length > 180 || /[.#$\[\]\u0000-\u001f\u007f]/.test(id)) {
-    return null;
-  }
-  return path;
+  return safeDiaryEntryId(parts[1]) ? path : null;
 }
 
 function parseJsonObject(value, maxLength) {

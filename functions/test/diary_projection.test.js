@@ -66,10 +66,31 @@ test('projected entry is absolute, idempotent, and leaves a tombstone', () => {
   });
 });
 
-test('projection strips prototype-pollution field names', () => {
+test('legacy projected rows without source hashes cannot survive deletion', () => {
+  const legacyProjected = {
+    id: 'dia_legacy',
+    date: '2026-08-01',
+    title: 'Legacy projection',
+    _period: '2026-08',
+  };
+
+  const deleted = forceProjectedEntry(legacyProjected, null, 'dia_legacy');
+
+  assert.deepEqual(deleted, {
+    _deleted: true,
+    _period: null,
+    _sourceHash: sourceHash(null),
+    _version: 1,
+  });
+});
+
+test('projection strips prototype-pollution field names recursively', () => {
   const malicious = JSON.parse(
     '{"date":"2026-08-31","title":"Safe","__proto__":{"polluted":true},' +
-    '"constructor":{"polluted":true},"prototype":{"polluted":true}}',
+    '"constructor":{"polluted":true},"prototype":{"polluted":true},' +
+    '"meta":{"safe":"kept","nested":{"__proto__":{"polluted":true},' +
+    '"constructor":{"polluted":true},"prototype":{"polluted":true},' +
+    '"value":7}}}',
   );
   const normalized = normalizeSourceEntry(malicious, 'dia_safe');
   assert.equal(normalized.id, 'dia_safe');
@@ -77,7 +98,21 @@ test('projection strips prototype-pollution field names', () => {
   assert.equal(Object.hasOwn(normalized, '__proto__'), false);
   assert.equal(Object.hasOwn(normalized, 'constructor'), false);
   assert.equal(Object.hasOwn(normalized, 'prototype'), false);
+  assert.equal(normalized.meta.safe, 'kept');
+  assert.equal(normalized.meta.nested.value, 7);
+  assert.equal(Object.hasOwn(normalized.meta.nested, '__proto__'), false);
+  assert.equal(Object.hasOwn(normalized.meta.nested, 'constructor'), false);
+  assert.equal(Object.hasOwn(normalized.meta.nested, 'prototype'), false);
   assert.equal({}.polluted, undefined);
+});
+
+test('projection rejects unsafe entry identities at every ingestion path', () => {
+  for (const id of ['__proto__', 'constructor', 'prototype']) {
+    assert.equal(normalizeSourceEntry({date: '2026-08-31'}, id), null);
+    assert.equal(extractDiaryPaths({
+      deltaPaths: JSON.stringify([`diaryDB/${id}`]),
+    }), null);
+  }
 });
 
 test('period index cannot be rolled back by a late projection event', () => {

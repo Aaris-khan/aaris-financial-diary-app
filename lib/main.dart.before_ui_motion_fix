@@ -6,8 +6,7 @@ import 'dart:ui' as ui;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart'
-    show TapMoveDetails, kPrimaryButton, kTouchSlop;
+import 'package:flutter/gestures.dart' show TapMoveDetails, kPrimaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
@@ -77,7 +76,8 @@ abstract final class UIConstants {
   // BOUNCE_SURFACE_V1
   // Allow the pressed surface to visibly release before navigation.
   // Reduced Motion bypasses this delay completely.
-  static const Duration routePressHandoff = Duration(milliseconds: 56);
+  static const Duration routePressHandoff = Duration(milliseconds: 72);
+  static const Duration globalRippleIntentDelay = Duration(milliseconds: 48);
   static const Duration motion = Duration(milliseconds: 260);
   static const Duration navMotion = Duration(milliseconds: 220);
   static const Duration routeIn = Duration(milliseconds: 280);
@@ -430,9 +430,6 @@ class _AarishDiaryAppState extends State<AarishDiaryApp>
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-    key: ValueKey<String>(
-      _userId == null ? 'auth:signed-out' : 'auth:${_userId!}',
-    ),
     debugShowCheckedModeBanner: false,
     title: 'Aarish Dairy Pro',
     themeMode: _darkMode ? ThemeMode.dark : ThemeMode.light,
@@ -442,46 +439,11 @@ class _AarishDiaryAppState extends State<AarishDiaryApp>
         ? Duration.zero
         : const Duration(milliseconds: 300),
     themeAnimationCurve: const Cubic(0.25, 1, 0.5, 1),
-    builder: (BuildContext context, Widget? child) {
-      final Widget content = _GlobalTapRippleLayer(
-        child: _AmbientBackground(child: child ?? const SizedBox.shrink()),
-      );
-      final String? userId = _userId;
-      if (userId == null || userId.isEmpty) return content;
-      return _AccountSessionScope(
-        sync: widget.sync,
-        userId: userId,
-        generation: widget.sync.sessionGeneration,
-        child: content,
-      );
-    },
+    builder: (BuildContext context, Widget? child) => _GlobalTapRippleLayer(
+      child: _AmbientBackground(child: child ?? const SizedBox.shrink()),
+    ),
     home: _RootStage(booting: _booting, userId: _userId, sync: widget.sync),
   );
-}
-
-class _AccountSessionScope extends InheritedWidget {
-  const _AccountSessionScope({
-    required this.sync,
-    required this.userId,
-    required this.generation,
-    required super.child,
-  });
-
-  final LedgerSyncService sync;
-  final String userId;
-  final int generation;
-
-  bool get isCurrent => sync.isSessionCurrent(userId, generation);
-  String get operationKey => '$userId:$generation';
-
-  static _AccountSessionScope? maybeOf(BuildContext context) =>
-      context.getInheritedWidgetOfExactType<_AccountSessionScope>();
-
-  @override
-  bool updateShouldNotify(covariant _AccountSessionScope oldWidget) =>
-      oldWidget.sync != sync ||
-      oldWidget.userId != userId ||
-      oldWidget.generation != generation;
 }
 
 class _RootStage extends StatelessWidget {
@@ -508,7 +470,7 @@ class _RootStage extends StatelessWidget {
       stageKey = 'login';
     } else {
       stage = AppShell(sync: sync);
-      stageKey = 'app:$userId';
+      stageKey = 'app';
     }
 
     return AnimatedSwitcher(
@@ -668,12 +630,29 @@ class _RipplePulse {
   final Offset downPosition;
   final VoidCallback _onTick;
   final AnimationController controller;
+  Timer? _startTimer;
   bool _started = false;
   bool cancelled = false;
   bool disposed = false;
 
+  bool get started => _started;
+
+  void scheduleStart(Duration delay, VoidCallback onDue) {
+    if (disposed || cancelled || _started) return;
+    _startTimer?.cancel();
+
+    if (delay.inMicroseconds <= 0) {
+      onDue();
+      return;
+    }
+
+    _startTimer = Timer(delay, onDue);
+  }
+
   bool prepareStart() {
     if (disposed || cancelled || _started) return false;
+    _startTimer?.cancel();
+    _startTimer = null;
     _started = true;
     return true;
   }
@@ -686,6 +665,8 @@ class _RipplePulse {
   bool cancel() {
     if (cancelled || disposed) return false;
     cancelled = true;
+    _startTimer?.cancel();
+    _startTimer = null;
 
     if (!_started) return false;
 
@@ -700,6 +681,8 @@ class _RipplePulse {
   void dispose() {
     if (disposed) return;
     disposed = true;
+    _startTimer?.cancel();
+    _startTimer = null;
     controller.removeListener(_onTick);
     controller.dispose();
   }
@@ -707,7 +690,7 @@ class _RipplePulse {
 
 class _GlobalTapRippleLayerState extends State<_GlobalTapRippleLayer>
     with TickerProviderStateMixin {
-  static const double _scrollThreshold = kTouchSlop;
+  static const double _scrollThreshold = 8;
   static const int _maxActivePulses = 2;
 
   // Pointer intent, visible pulses, and paint invalidation are deliberately
@@ -770,9 +753,10 @@ class _GlobalTapRippleLayerState extends State<_GlobalTapRippleLayer>
     _livePulses.add(pulse);
     _pointerPulses[event.pointer] = pulse;
 
-    // Immediate finger-down depth is owned by _Pressable.
-    // The global ripple is committed only on pointer-up, so a drag/scroll
-    // never launches a full-screen paint animation that is cancelled later.
+    pulse.scheduleStart(
+      UIConstants.globalRippleIntentDelay,
+      () => _startPulse(pulse),
+    );
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
@@ -1061,41 +1045,21 @@ class _OpaqueContentTransitionsBuilder extends PageTransitionsBuilder {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
-    // Keep the route canvas fully opaque so transparent Scaffolds never blend
-    // two pages. Motion is compositor-only; resting visuals remain unchanged.
-    if (AppMotion.reduce(context)) {
-      return _AmbientBackground(child: child);
-    }
-
-    final Animation<double> contentMotion = CurvedAnimation(
-      parent: animation,
-      curve: UIConstants.motionOut,
-      reverseCurve: UIConstants.motionIn,
-    );
-
-    final Animation<double> contentOpacity = Tween<double>(
-      begin: .96,
-      end: 1,
-    ).animate(contentMotion);
-
-    final Animation<Offset> contentOffset = Tween<Offset>(
-      begin: const Offset(0, .012),
-      end: Offset.zero,
-    ).animate(contentMotion);
-
-    final Animation<double> contentScale = Tween<double>(
-      begin: .992,
-      end: 1,
-    ).animate(contentMotion);
-
+    // A route-local canvas stays fully opaque for the whole transition. Only
+    // the incoming content gets a near-instant opacity settle, so transparent
+    // Scaffolds can never blend two pages' text together.
+    final Widget surface = _AmbientBackground(child: child);
+    if (AppMotion.reduce(context)) return surface;
+    final Animation<double> contentOpacity = Tween<double>(begin: .96, end: 1)
+        .animate(
+          CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          ),
+        );
     return _AmbientBackground(
-      child: FadeTransition(
-        opacity: contentOpacity,
-        child: SlideTransition(
-          position: contentOffset,
-          child: ScaleTransition(scale: contentScale, child: child),
-        ),
-      ),
+      child: FadeTransition(opacity: contentOpacity, child: child),
     );
   }
 }
@@ -1134,40 +1098,20 @@ class _DirectRouteTransition extends StatelessWidget {
     if (AppMotion.reduce(context)) {
       return _AmbientBackground(child: child);
     }
-
-    final Animation<double> contentMotion = CurvedAnimation(
-      parent: animation,
-      curve: UIConstants.motionOut,
-      reverseCurve: UIConstants.motionIn,
-    );
-
-    final Animation<double> contentOpacity = Tween<double>(
-      begin: .96,
-      end: 1,
-    ).animate(contentMotion);
-
-    final Animation<Offset> contentOffset = Tween<Offset>(
-      begin: const Offset(0, .012),
-      end: Offset.zero,
-    ).animate(contentMotion);
-
-    final Animation<double> contentScale = Tween<double>(
-      begin: .992,
-      end: 1,
-    ).animate(contentMotion);
-
+    final Animation<double> contentOpacity = Tween<double>(begin: .96, end: 1)
+        .animate(
+          CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          ),
+        );
     return IgnorePointer(
       ignoring: animation.status != AnimationStatus.completed,
       child: _AmbientBackground(
         child: FadeTransition(
           opacity: contentOpacity,
-          child: SlideTransition(
-            position: contentOffset,
-            child: ScaleTransition(
-              scale: contentScale,
-              child: RepaintBoundary(child: child),
-            ),
-          ),
+          child: RepaintBoundary(child: child),
         ),
       ),
     );
@@ -1195,25 +1139,13 @@ class _FastRouteLauncherState extends State<_FastRouteLauncher> {
     if (_routeOpen) return;
     _routeOpen = true;
 
-    // Capture tap identity before the tactile handoff delay. A filtered/live
-    // list can rebuild during those few milliseconds and update this State's
-    // widget; the tap must still open the destination that was actually hit.
-    final WidgetBuilder destinationBuilder = widget.destinationBuilder;
-
     void launchRoute() {
       _launchTimer = null;
       if (!mounted) return;
 
-      // The handoff is intentionally delayed for tactile release. If another
-      // route won during that small window, never let this stale tap push over it.
-      if (ModalRoute.of(context)?.isCurrent != true) {
-        _routeOpen = false;
-        return;
-      }
-
       final NavigatorState navigator = Navigator.of(context);
       final PageRoute<Object?> route = _directRoute<Object?>(
-        destinationBuilder: destinationBuilder,
+        destinationBuilder: widget.destinationBuilder,
         reduceMotion: AppMotion.reduce(context),
       );
 
@@ -1457,7 +1389,7 @@ class _LoginScreenState extends State<_LoginScreen> {
                       ),
                       const SizedBox(height: 36),
                       _Pressable(
-                        onTap: _working ? null : _signIn,
+                        onTap: _signIn,
                         borderRadius: BorderRadius.circular(17),
                         child: Container(
                           height: 56,
@@ -1525,7 +1457,7 @@ class _LoginScreenState extends State<_LoginScreen> {
                         ),
                       ],
                       const SizedBox(height: 12),
-                      _BounceTextButton(
+                      _Pressable(
                         onTap: () => showAboutDialog(
                           context: context,
                           applicationName: 'Aarish Dairy Pro',
@@ -1537,13 +1469,19 @@ class _LoginScreenState extends State<_LoginScreen> {
                             ),
                           ],
                         ),
-                        semanticLabel: 'About features',
-                        child: Text(
-                          'About features',
-                          style: TextStyle(
-                            color: Colors.white.withAlpha(138),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 7,
+                          ),
+                          child: Text(
+                            'About features',
+                            style: TextStyle(
+                              color: Colors.white.withAlpha(138),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                         ),
                       ),
@@ -1703,7 +1641,6 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final ValueNotifier<int> _tabSelection = ValueNotifier<int>(0);
   final ValueNotifier<int> _settledPage = ValueNotifier<int>(0);
-  late final ValueNotifier<List<Color>> _tabColors;
   int? _programmaticPageTarget;
   int _pageMotionGeneration = 0;
   bool _userPageDragActive = false;
@@ -1717,35 +1654,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int get _tab => _tabSelection.value;
   int get _settledPageIndex => _settledPage.value;
 
-  void _handleTabColorSync() {
-    final List<Color> next = _moduleTabColors(widget.sync.currentProjection);
-
-    if (listEquals(_tabColors.value, next)) return;
-
-    _tabColors.value = List<Color>.unmodifiable(next);
-  }
-
   @override
   void initState() {
     super.initState();
-
-    _tabColors = ValueNotifier<List<Color>>(
-      List<Color>.unmodifiable(_moduleTabColors(widget.sync.currentProjection)),
-    );
-
-    widget.sync.contentChanges.addListener(_handleTabColorSync);
     WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void didUpdateWidget(covariant AppShell oldWidget) {
-    super.didUpdateWidget(oldWidget);
-
-    if (oldWidget.sync == widget.sync) return;
-
-    oldWidget.sync.contentChanges.removeListener(_handleTabColorSync);
-    _handleTabColorSync();
-    widget.sync.contentChanges.addListener(_handleTabColorSync);
   }
 
   @override
@@ -1762,8 +1674,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    widget.sync.contentChanges.removeListener(_handleTabColorSync);
-    _tabColors.dispose();
     _tabSelection.dispose();
     _settledPage.dispose();
     _navController.dispose();
@@ -1825,19 +1735,18 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   Duration _adaptivePageDuration(double originPage, int targetPage) {
     final double remainingPages = (targetPage - originPage)
         .abs()
-        .clamp(0.0, (_tabs.length - 1).toDouble())
+        .clamp(0.0, 1.0)
         .toDouble();
     if (remainingPages <= .001) return Duration.zero;
 
-    // Preserve live-finger retarget responsiveness while allowing distant
-    // tab selections to travel continuously instead of teleporting to an
-    // artificial staging page. Square-root timing keeps long travel calm.
+    // Distance-aware timing keeps a mid-swipe retarget responsive while a
+    // complete one-page transition preserves the established motion cadence.
     final double travelFactor = math.sqrt(remainingPages);
     final int micros = (UIConstants.motion.inMicroseconds * travelFactor)
         .round()
         .clamp(
           const Duration(milliseconds: 90).inMicroseconds,
-          const Duration(milliseconds: 420).inMicroseconds,
+          UIConstants.motion.inMicroseconds,
         )
         .toInt();
     return Duration(microseconds: micros);
@@ -1868,10 +1777,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         _programmaticPageTarget == null;
     if (alreadySettled || _programmaticPageTarget == index) return;
 
-    // A text field on the outgoing kept-alive page must not own the keyboard
-    // or focus after the user deliberately changes modules.
-    FocusManager.instance.primaryFocus?.unfocus();
-
     final bool reduceMotion = AppMotion.reduce(context);
     final int generation = ++_pageMotionGeneration;
     _userPageDragActive = false;
@@ -1900,7 +1805,17 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
     final double livePage =
         _pageController.page ?? _settledPageIndex.toDouble();
-    final Duration pageDuration = _adaptivePageDuration(livePage, index);
+    final int currentPage = livePage.round().clamp(0, _tabs.length - 1).toInt();
+    final int pageDistance = (index - currentPage).abs();
+
+    double animationOrigin = livePage;
+    if (pageDistance > 1) {
+      final int stagingPage = index > currentPage ? index - 1 : index + 1;
+      _pageController.jumpToPage(stagingPage);
+      animationOrigin = stagingPage.toDouble();
+    }
+
+    final Duration pageDuration = _adaptivePageDuration(animationOrigin, index);
     if (pageDuration == Duration.zero) {
       _pageController.jumpToPage(index);
       _finishProgrammaticPageMotion(index, generation);
@@ -1946,9 +1861,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     }
     if (notification is ScrollStartNotification &&
         notification.dragDetails != null) {
-      // Horizontal module navigation is a clear intent to leave the focused
-      // field; dismiss it before the next page becomes visible.
-      FocusManager.instance.primaryFocus?.unfocus();
       _userPageDragActive = true;
       _dragHapticPages
         ..clear()
@@ -2064,11 +1976,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       }
 
       final double page = _pageController.page ?? _settledPageIndex.toDouble();
-      final double rawDelta = page - index;
-      // Kept-alive pages more than one viewport away are invisible. Do not
-      // allocate transform/compositing work for them on every pager tick.
-      if (rawDelta.abs() > 1.05) return pageChild;
-      final double delta = rawDelta.clamp(-1.0, 1.0).toDouble();
+      final double delta = (page - index).clamp(-1.0, 1.0).toDouble();
       final double depth = delta.abs();
       if (depth <= .0001) return pageChild;
 
@@ -2137,7 +2045,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           activePage: _settledPage,
           pageIndex: 5,
           builder: (BuildContext context) => DiaryScreen(sync: widget.sync),
-          listenToContentOnly: false,
         ),
       ),
       _KeepAlivePage(
@@ -2155,9 +2062,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           AnimatedBuilder(
             animation: widget.sync,
             builder: (BuildContext context, Widget? child) =>
-                widget.sync.isOffline
-                ? const _OfflineBanner()
-                : const SizedBox.shrink(),
+                widget.sync.isConnected
+                ? const SizedBox.shrink()
+                : const _OfflineBanner(),
           ),
           Expanded(
             child: RepaintBoundary(
@@ -2180,18 +2087,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           ),
         ],
       ),
-      bottomNavigationBar: ValueListenableBuilder<List<Color>>(
-        valueListenable: _tabColors,
-        builder: (BuildContext context, List<Color> colors, Widget? child) =>
-            ValueListenableBuilder<int>(
-              valueListenable: _tabSelection,
-              builder: (BuildContext context, int selected, Widget? child) =>
-                  _BottomLedgerNav(
-                    colors: colors,
-                    selected: selected,
-                    controller: _navController,
-                    onSelected: _selectTab,
-                  ),
+      bottomNavigationBar: ValueListenableBuilder<int>(
+        valueListenable: _tabSelection,
+        builder: (BuildContext context, int selected, Widget? child) =>
+            _BottomLedgerNav(
+              sync: widget.sync,
+              selected: selected,
+              controller: _navController,
+              onSelected: _selectTab,
             ),
       ),
     );
@@ -2225,16 +2128,12 @@ class _ActiveSyncView extends StatefulWidget {
     required this.activePage,
     required this.pageIndex,
     required this.builder,
-    this.listenToContentOnly = true,
   });
 
   final LedgerSyncService sync;
   final ValueListenable<int> activePage;
   final int pageIndex;
   final WidgetBuilder builder;
-  final bool listenToContentOnly;
-
-  Listenable get changes => listenToContentOnly ? sync.contentChanges : sync;
 
   @override
   State<_ActiveSyncView> createState() => _ActiveSyncViewState();
@@ -2250,7 +2149,7 @@ class _ActiveSyncViewState extends State<_ActiveSyncView> {
     super.initState();
     _active = _resolveActive();
     widget.activePage.addListener(_handleActivePageChange);
-    if (_active) widget.changes.addListener(_handleSyncChange);
+    if (_active) widget.sync.addListener(_handleSyncChange);
   }
 
   @override
@@ -2258,33 +2157,32 @@ class _ActiveSyncViewState extends State<_ActiveSyncView> {
     super.didUpdateWidget(oldWidget);
     final bool routingIdentityChanged =
         oldWidget.sync != widget.sync ||
-        oldWidget.listenToContentOnly != widget.listenToContentOnly ||
         oldWidget.activePage != widget.activePage ||
         oldWidget.pageIndex != widget.pageIndex;
     if (!routingIdentityChanged) return;
 
-    if (_active) oldWidget.changes.removeListener(_handleSyncChange);
+    if (_active) oldWidget.sync.removeListener(_handleSyncChange);
     if (oldWidget.activePage != widget.activePage) {
       oldWidget.activePage.removeListener(_handleActivePageChange);
       widget.activePage.addListener(_handleActivePageChange);
     }
 
     _active = _resolveActive();
-    if (_active) widget.changes.addListener(_handleSyncChange);
+    if (_active) widget.sync.addListener(_handleSyncChange);
   }
 
   void _handleActivePageChange() {
     final bool nextActive = _resolveActive();
     if (nextActive == _active) return;
 
-    if (_active) widget.changes.removeListener(_handleSyncChange);
+    if (_active) widget.sync.removeListener(_handleSyncChange);
     _active = nextActive;
-    if (_active) widget.changes.addListener(_handleSyncChange);
-
-    // Pages are intentionally kept alive. Rebuild on both ownership edges so
-    // hidden tickers/focus are disabled immediately, and the newly active page
-    // renders the latest sync state exactly once.
-    if (mounted) setState(() {});
+    if (_active) {
+      widget.sync.addListener(_handleSyncChange);
+      // This page ignored sync notifications while offscreen. Rebuild exactly
+      // once on activation so the first visible frame uses the latest state.
+      if (mounted) setState(() {});
+    }
   }
 
   void _handleSyncChange() {
@@ -2294,18 +2192,13 @@ class _ActiveSyncViewState extends State<_ActiveSyncView> {
   @override
   void dispose() {
     widget.activePage.removeListener(_handleActivePageChange);
-    if (_active) widget.changes.removeListener(_handleSyncChange);
+    if (_active) widget.sync.removeListener(_handleSyncChange);
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => TickerMode(
-    enabled: _active,
-    child: ExcludeFocus(
-      excluding: !_active,
-      child: RepaintBoundary(child: widget.builder(context)),
-    ),
-  );
+  Widget build(BuildContext context) =>
+      RepaintBoundary(child: widget.builder(context));
 }
 
 class _OfflineBanner extends StatelessWidget {
@@ -2341,19 +2234,22 @@ class _OfflineBanner extends StatelessWidget {
 
 class _BottomLedgerNav extends StatelessWidget {
   const _BottomLedgerNav({
-    required this.colors,
+    required this.sync,
     required this.selected,
     required this.controller,
     required this.onSelected,
   });
 
-  final List<Color> colors;
+  final LedgerSyncService sync;
   final int selected;
   final ScrollController controller;
   final ValueChanged<int> onSelected;
 
   @override
-  Widget build(BuildContext context) => _buildNavigation(context);
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: sync,
+    builder: (BuildContext context, Widget? child) => _buildNavigation(context),
+  );
 
   Widget _buildNavigation(BuildContext context) {
     final bool dark = Theme.of(context).brightness == Brightness.dark;
@@ -2361,6 +2257,8 @@ class _BottomLedgerNav extends StatelessWidget {
     final Duration navMotion = AppMotion.reduce(context)
         ? Duration.zero
         : UIConstants.navMotion;
+
+    final List<Color> colors = _moduleTabColors(sync.currentProjection);
 
     final int safeSelected = colors.isEmpty
         ? 0
@@ -2445,10 +2343,6 @@ class _BottomLedgerNav extends StatelessWidget {
                           semanticLabel: '${spec.label} tab',
 
                           selected: active,
-
-                          // Reselecting the active destination changes no state,
-                          // so do not emit a false selection-change haptic.
-                          haptics: !active,
 
                           borderRadius: BorderRadius.circular(
                             UIConstants.actionRadius,
@@ -2606,7 +2500,7 @@ class _PremiumNavIconFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AnimatedContainer(
-    duration: AppMotion.reduce(context) ? Duration.zero : UIConstants.navMotion,
+    duration: AppMotion.reduce(context) ? Duration.zero : UIConstants.motion,
 
     curve: UIConstants.motionOut,
 
@@ -2687,7 +2581,6 @@ class _Pressable extends StatefulWidget {
     this.feedbackColor,
     this.semanticLabel,
     this.selected,
-    this.haptics = true,
   });
 
   final Widget child;
@@ -2696,7 +2589,6 @@ class _Pressable extends StatefulWidget {
   final Color? feedbackColor;
   final String? semanticLabel;
   final bool? selected;
-  final bool haptics;
 
   @override
   State<_Pressable> createState() => _PressableState();
@@ -2707,8 +2599,6 @@ class _PressableState extends State<_Pressable>
   static const double _touchAlignmentEpsilonSquared = .0004;
 
   late final AnimationController _pressController;
-  late final ChangeNotifier _spatialRepaint;
-  late final Listenable _pressRepaint;
   late final Stopwatch _gestureClock;
   Alignment _touchAlignment = Alignment.center;
   Alignment? _releaseAlignment;
@@ -2729,13 +2619,6 @@ class _PressableState extends State<_Pressable>
       duration: UIConstants.pressIn,
       reverseDuration: UIConstants.pressOut,
     );
-
-    _spatialRepaint = ChangeNotifier();
-
-    _pressRepaint = Listenable.merge(<Listenable>[
-      _pressController,
-      _spatialRepaint,
-    ]);
   }
 
   @override
@@ -2895,10 +2778,7 @@ class _PressableState extends State<_Pressable>
     _releaseAlignment = null;
     _sampleGestureVelocity(details.localPosition);
     final bool changed = _updateTouchAlignment(details.localPosition);
-
-    if (changed && !_pressController.isAnimating) {
-      _spatialRepaint.notifyListeners();
-    }
+    if (changed && !_pressController.isAnimating && mounted) setState(() {});
   }
 
   void _press([TapDownDetails? details]) {
@@ -2962,29 +2842,24 @@ class _PressableState extends State<_Pressable>
 
   void _activate() {
     if (widget.onTap == null) return;
-
-    if (widget.haptics) {
-      if (widget.feedbackColor == null) {
-        HapticFeedback.selectionClick();
-      } else {
-        HapticFeedback.lightImpact();
-      }
+    if (widget.feedbackColor == null) {
+      HapticFeedback.selectionClick();
+    } else {
+      HapticFeedback.lightImpact();
     }
-
     widget.onTap!();
   }
 
   @override
   void dispose() {
     _gestureClock.stop();
-    _spatialRepaint.dispose();
     _pressController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => Semantics(
-    button: true,
+    button: widget.onTap != null,
     enabled: widget.onTap != null,
     label: widget.semanticLabel,
     selected: widget.selected,
@@ -3000,15 +2875,12 @@ class _PressableState extends State<_Pressable>
       onTapUp: widget.onTap == null ? null : (_) => _release(),
       onTap: widget.onTap == null ? null : _activate,
       child: AnimatedBuilder(
-        animation: _pressRepaint,
+        animation: _pressController,
         child: widget.child,
         builder: (BuildContext context, Widget? child) {
-          final double feedback = _pressController.value;
-          // Zero is the overwhelmingly common list state. Skip identity
-          // transforms, transparent glow layers and matrix work entirely.
-          if (feedback.abs() <= .0001) return child!;
           final bool dark = Theme.of(context).brightness == Brightness.dark;
           final bool reduceMotion = AppMotion.reduce(context);
+          final double feedback = _pressController.value;
           final double pressed = feedback.clamp(0.0, 1.0).toDouble();
           final double motion = reduceMotion ? 0 : feedback;
           final double cardTilt = reduceMotion || widget.feedbackColor == null
@@ -3534,7 +3406,7 @@ class _ScreenHeader extends StatelessWidget {
       ),
       child: ClipRect(
         child: BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
           child: DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -3625,7 +3497,7 @@ class _CircleAction extends StatelessWidget {
   });
 
   final IconData icon;
-  final VoidCallback? onTap;
+  final VoidCallback onTap;
   final Color color;
   final String? semanticLabel;
 
@@ -3696,7 +3568,7 @@ class _DeleteActionButton extends StatelessWidget {
     this.padding = EdgeInsets.zero,
   });
 
-  final VoidCallback? onTap;
+  final VoidCallback onTap;
   final String semanticLabel;
   final EdgeInsetsGeometry padding;
 
@@ -3920,23 +3792,9 @@ class _SearchBox extends StatefulWidget {
   State<_SearchBox> createState() => _SearchBoxState();
 }
 
-class _SearchBoxState extends State<_SearchBox>
-    with AutomaticKeepAliveClientMixin<_SearchBox> {
+class _SearchBoxState extends State<_SearchBox> {
   Timer? _debounce;
   late final FocusNode _focusNode;
-
-  // SEARCH_THEME_FLASH_FIX_V1
-  //
-  // The SearchBox is kept alive between PageView tabs.
-  // Therefore its AnimatedContainer can still own a decoration
-  // from the previous light/dark theme.
-  //
-  // Track the last rendered brightness so a THEME change snaps
-  // immediately, while normal focus changes remain animated.
-  Brightness? _lastSearchThemeBrightness;
-
-  @override
-  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -3981,22 +3839,7 @@ class _SearchBoxState extends State<_SearchBox>
 
   @override
   Widget build(BuildContext context) {
-    super.build(context);
-
-    final Brightness brightness = Theme.of(context).brightness;
-
-    final bool dark = brightness == Brightness.dark;
-
-    // A kept-alive off-screen SearchBox may still contain the previous
-    // theme's AnimatedContainer decoration.
-    //
-    // Do NOT interpolate between opposite themes when it becomes visible.
-    // Theme changes are a hard visual boundary; focus changes are not.
-    final bool themeBrightnessChanged =
-        _lastSearchThemeBrightness != null &&
-        _lastSearchThemeBrightness != brightness;
-
-    _lastSearchThemeBrightness = brightness;
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
 
     final bool focused = _focusNode.hasFocus;
 
@@ -4010,7 +3853,7 @@ class _SearchBoxState extends State<_SearchBox>
           );
 
     return AnimatedContainer(
-      duration: AppMotion.reduce(context) || themeBrightnessChanged
+      duration: AppMotion.reduce(context)
           ? Duration.zero
           : const Duration(milliseconds: 180),
 
@@ -4093,47 +3936,6 @@ class _SearchBoxState extends State<_SearchBox>
   }
 }
 
-class _LazyLedgerList extends StatelessWidget {
-  const _LazyLedgerList({
-    required this.storageKey,
-    required this.header,
-    required this.itemCount,
-    required this.itemBuilder,
-    required this.emptyState,
-  });
-
-  final String storageKey;
-  final List<Widget> header;
-  final int itemCount;
-  final IndexedWidgetBuilder itemBuilder;
-  final Widget emptyState;
-
-  @override
-  Widget build(BuildContext context) {
-    final int headerCount = header.length;
-    final int contentCount = itemCount == 0 ? 1 : itemCount;
-
-    return ListView.builder(
-      key: PageStorageKey<String>(storageKey),
-      physics: const BouncingScrollPhysics(),
-      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: UIConstants.screenPadding,
-      itemCount: headerCount + contentCount,
-      itemBuilder: (BuildContext context, int index) {
-        if (index < headerCount) {
-          return header[index];
-        }
-
-        if (itemCount == 0) {
-          return emptyState;
-        }
-
-        return itemBuilder(context, index - headerCount);
-      },
-    );
-  }
-}
-
 class _DateField extends StatelessWidget {
   const _DateField({required this.controller});
 
@@ -4158,7 +3960,7 @@ class _DateField extends StatelessWidget {
       helpText: 'SELECT DATE',
     );
     if (picked != null) {
-      controller.text = _isoDateFormat.format(picked);
+      controller.text = DateFormat('yyyy-MM-dd').format(picked);
     }
   }
 
@@ -4241,7 +4043,7 @@ class _PrimaryButton extends StatelessWidget {
   });
 
   final String label;
-  final VoidCallback? onTap;
+  final VoidCallback onTap;
   final IconData icon;
   final Color color;
   final Color foregroundColor;
@@ -4824,7 +4626,7 @@ class _MonthYearPicker extends StatelessWidget {
                   (int item) => DropdownMenuItem<int>(
                     value: item,
                     child: Text(
-                      _monthNameFormat.format(DateTime(2024, item)),
+                      DateFormat.MMMM().format(DateTime(2024, item)),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -5075,102 +4877,40 @@ Future<bool> _runMutation(
   Future<void> Function() mutation,
   String success,
 ) async {
-  final _AccountSessionScope? session = _AccountSessionScope.maybeOf(context);
-  if (session != null && !session.isCurrent) {
-    debugPrint('Ledger mutation rejected: stale authenticated UI session.');
-    return false;
-  }
   try {
     await mutation();
-    // The mutation may already be durable, but stale screens must never emit
-    // success feedback or continue follow-up UI work for a different account.
-    if (session != null && !session.isCurrent) return false;
     HapticFeedback.successNotification();
     if (context.mounted) _toast(context, success);
     return true;
   } catch (error, stackTrace) {
     debugPrint('Ledger mutation failed: $error\n$stackTrace');
-    if (context.mounted && (session == null || session.isCurrent)) {
-      _toast(context, '$error', error: true);
-    }
+    if (context.mounted) _toast(context, '$error', error: true);
     return false;
   }
 }
 
-final RegExp _decimalInputPattern = RegExp(r'^\d*(?:\.\d*)?$');
-final TextInputFormatter _decimalInputFormatter =
-    TextInputFormatter.withFunction(
-      (TextEditingValue oldValue, TextEditingValue newValue) =>
-          _decimalInputPattern.hasMatch(newValue.text) ? newValue : oldValue,
-    );
-
-Future<void> _sharePdfSafely(
-  BuildContext context,
-  String title,
-  List<String> headers,
-  List<List<String>> rows,
-) async {
-  try {
-    final _AccountSessionScope? session = _AccountSessionScope.maybeOf(context);
-    await _ExportService.sharePdf(
-      title,
-      headers,
-      rows,
-      stillCurrent: session == null ? null : () => session.isCurrent,
-    );
-  } catch (error, stackTrace) {
-    debugPrint('PDF share failed: $error\n$stackTrace');
-    if (context.mounted) {
-      _toast(context, 'PDF sharing failed. Please try again.', error: true);
-    }
-  }
-}
-
-Future<void> _setDarkModeSafely(
-  BuildContext context,
-  LedgerSyncService sync,
-  bool value,
-) async {
-  try {
-    await sync.setDarkMode(value);
-  } catch (error, stackTrace) {
-    debugPrint('Theme preference save failed: $error\n$stackTrace');
-    if (context.mounted) {
-      _toast(context, 'Theme preference could not be saved.', error: true);
-    }
-  }
-}
-
-final DateFormat _isoDateFormat = DateFormat('yyyy-MM-dd');
-final DateFormat _displayDateFormat = DateFormat('dd MMM yyyy');
-final DateFormat _dayFormat = DateFormat('dd');
-final DateFormat _monthAbbrevFormat = DateFormat('MMM');
-final DateFormat _dayMonthFormat = DateFormat('dd MMM');
-final DateFormat _monthNameFormat = DateFormat.MMMM();
-final DateFormat _monthYearFormat = DateFormat('MMMM yyyy');
-final NumberFormat _inrIntegerFormat = NumberFormat('#,##,##0', 'en_IN');
-final NumberFormat _compactQuantityFormat = NumberFormat('0.##');
-
 String _newId(String prefix) =>
     '${prefix}_${DateTime.now().millisecondsSinceEpoch}_${_ids.v4().replaceAll('-', '').substring(0, 8)}';
 
-String _today() => _isoDateFormat.format(DateTime.now());
+String _today() => DateFormat('yyyy-MM-dd').format(DateTime.now());
 
 String _displayDate(dynamic value) {
   final DateTime? date = LedgerMath.date(value);
-  return date == null ? '${value ?? '—'}' : _displayDateFormat.format(date);
+  return date == null
+      ? '${value ?? '—'}'
+      : DateFormat('dd MMM yyyy').format(date);
 }
 
 String _displayDay(dynamic value) {
   final DateTime? date = LedgerMath.date(value);
-  return date == null ? '—' : _dayFormat.format(date);
+  return date == null ? '—' : DateFormat('dd').format(date);
 }
 
 // LAST_ENTRY_DAY_ONLY_V1
 
 String _money(dynamic value) {
   final double number = LedgerMath.number(value).abs();
-  return '₹${_inrIntegerFormat.format(number.round())}';
+  return '₹${NumberFormat('#,##,##0', 'en_IN').format(number.round())}';
 }
 
 String _signedMoney(dynamic value) {
@@ -5230,7 +4970,7 @@ class _AiHubButton extends StatelessWidget {
       borderRadius: radius,
       child: Container(
         width: 60,
-        height: UIConstants.minTapTarget,
+        height: 40,
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           gradient: const LinearGradient(
@@ -5299,61 +5039,30 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   LedgerSyncService get sync => widget.sync;
 
-  bool _loggingOut = false;
-
   Future<void> _logout(BuildContext context) async {
-    if (_loggingOut) return;
-    final _AccountSessionScope? session = _AccountSessionScope.maybeOf(context);
-    if (session == null || !session.isCurrent) return;
-    _loggingOut = true;
-    try {
-      if (sync.pendingWrites > 0) {
-        final bool continueLogout = await _confirm(
-          context,
-          'Sync before logout',
-          '${sync.pendingWrites} change(s) are waiting for Firebase. The app will try to sync now; logout will be blocked if the connection is unavailable.',
-          dangerous: false,
-        );
-        if (!continueLogout || !context.mounted || !session.isCurrent) return;
-      }
-      final bool safe = await sync.drainBeforeLogout();
-      if (!context.mounted || !session.isCurrent) return;
-      if (!safe) {
-        _toast(
-          context,
-          'Logout blocked: pending changes are still offline. Connect once, then retry.',
-          error: true,
-        );
-        return;
-      }
-      try {
-        // Re-check immediately before the destructive auth transition.
-        if (!session.isCurrent) return;
-        await FirebaseAuth.instance.signOut();
-      } on FirebaseAuthException catch (error) {
-        if (context.mounted && session.isCurrent) {
-          _toast(
-            context,
-            error.message ?? 'Firebase logout failed. Please try again.',
-            error: true,
-          );
-        }
-        return;
-      } catch (error, stackTrace) {
-        debugPrint('Firebase logout failed: $error\n$stackTrace');
-        if (context.mounted && session.isCurrent) {
-          _toast(context, 'Logout failed. Please try again.', error: true);
-        }
-        return;
-      }
-      try {
-        if (!kIsWeb) await GoogleSignIn().signOut();
-      } catch (error, stackTrace) {
-        debugPrint('Google local sign-out cleanup failed: $error\n$stackTrace');
-      }
-    } finally {
-      _loggingOut = false;
+    if (sync.pendingWrites > 0) {
+      final bool continueLogout = await _confirm(
+        context,
+        'Sync before logout',
+        '${sync.pendingWrites} change(s) are waiting for Firebase. The app will try to sync now; logout will be blocked if the connection is unavailable.',
+        dangerous: false,
+      );
+      if (!continueLogout || !context.mounted) return;
     }
+    final bool safe = await sync.drainBeforeLogout();
+    if (!context.mounted) return;
+    if (!safe) {
+      _toast(
+        context,
+        'Logout blocked: pending changes are still offline. Connect once, then retry.',
+        error: true,
+      );
+      return;
+    }
+    try {
+      if (!kIsWeb) await GoogleSignIn().signOut();
+    } catch (_) {}
+    await FirebaseAuth.instance.signOut();
   }
 
   @override
@@ -5376,20 +5085,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
               semanticLabel: 'Export reports',
               onTap: () => unawaited(_showExportCenter(context, sync)),
             ),
-            AnimatedBuilder(
-              animation: sync,
-              builder: (BuildContext context, Widget? child) => _CircleAction(
-                icon: sync.darkMode
-                    ? Icons.light_mode_rounded
-                    : Icons.dark_mode_rounded,
-                color: sync.darkMode ? themeAmber : themeIndigo,
-                semanticLabel: sync.darkMode
-                    ? 'Switch to light theme'
-                    : 'Switch to dark theme',
-                onTap: () => unawaited(
-                  _setDarkModeSafely(context, sync, !sync.darkMode),
-                ),
-              ),
+            _CircleAction(
+              icon: sync.darkMode
+                  ? Icons.light_mode_rounded
+                  : Icons.dark_mode_rounded,
+              color: sync.darkMode ? themeAmber : themeIndigo,
+              semanticLabel: sync.darkMode
+                  ? 'Switch to light theme'
+                  : 'Switch to dark theme',
+              onTap: () => unawaited(sync.setDarkMode(!sync.darkMode)),
             ),
             _CircleAction(
               icon: Icons.logout_rounded,
@@ -5403,19 +5107,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: RefreshIndicator.adaptive(
             onRefresh: () async {
               HapticFeedback.lightImpact();
-              final bool synced = await sync.reconcile(
-                reason: 'pull-to-refresh',
-              );
-              if (!context.mounted) return;
-              if (synced) {
-                HapticFeedback.selectionClick();
-              } else {
-                _toast(
-                  context,
-                  'Sync is incomplete. Check your Firebase connection and retry.',
-                  error: true,
-                );
-              }
+              await sync.reconcile(reason: 'pull-to-refresh');
+              if (context.mounted) HapticFeedback.selectionClick();
             },
             child: ListView(
               key: const PageStorageKey<String>('dashboard-scroll'),
@@ -5424,18 +5117,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               padding: UIConstants.screenPadding,
               children: <Widget>[
-                AnimatedBuilder(
-                  animation: sync,
-                  builder: (BuildContext context, Widget? child) {
-                    if (sync.pendingWrites <= 0 && !sync.syncing) {
-                      return const SizedBox.shrink();
-                    }
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _SyncPill(sync: sync),
-                    );
-                  },
-                ),
+                if (sync.pendingWrites > 0 || sync.syncing)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _SyncPill(sync: sync),
+                  ),
                 GridView.count(
                   crossAxisCount: 2,
                   crossAxisSpacing: 16,
@@ -5738,39 +5424,14 @@ class _PartyLedgerScreenState extends State<PartyLedgerScreen> {
   String _query = '';
 
   @override
-  void initState() {
-    super.initState();
-    widget.sync.contentChanges.addListener(_handleContentChange);
-  }
-
-  @override
-  void didUpdateWidget(covariant PartyLedgerScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.sync == widget.sync) return;
-    oldWidget.sync.contentChanges.removeListener(_handleContentChange);
-    widget.sync.contentChanges.addListener(_handleContentChange);
-  }
-
-  void _handleContentChange() {
-    if (mounted) setState(() {});
-  }
-
-  @override
-  void dispose() {
-    widget.sync.contentChanges.removeListener(_handleContentChange);
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final String query = _query.trim().toLowerCase();
     final List<PartyBalance> balances = widget
         .sync
         .currentProjection
         .partyBalances
         .where(
           (PartyBalance item) =>
-              query.isEmpty || item.name.toLowerCase().contains(query),
+              item.name.toLowerCase().contains(_query.toLowerCase()),
         )
         .toList();
     return Scaffold(
@@ -5786,8 +5447,7 @@ class _PartyLedgerScreenState extends State<PartyLedgerScreen> {
                 color: exportIndigo,
                 semanticLabel: 'Share Party Ledger PDF',
                 onTap: () => unawaited(
-                  _sharePdfSafely(
-                    context,
+                  _ExportService.sharePdf(
                     'Party Ledger',
                     <String>['Party', 'Milk', 'Credit', 'Net'],
                     balances
@@ -5806,35 +5466,38 @@ class _PartyLedgerScreenState extends State<PartyLedgerScreen> {
             ],
           ),
           Expanded(
-            child: _LazyLedgerList(
-              storageKey: 'party-ledger-scroll',
-              header: <Widget>[
+            child: ListView(
+              physics: const BouncingScrollPhysics(),
+              padding: UIConstants.screenPadding,
+              children: <Widget>[
                 _SearchBox(
                   hint: 'Search party name…',
                   onChanged: (String value) => setState(() => _query = value),
                 ),
                 const SizedBox(height: 16),
+                if (balances.isEmpty)
+                  const _EmptyState(
+                    Icons.contact_page_rounded,
+                    'No party balances found',
+                  )
+                else
+                  ...balances.map((PartyBalance item) {
+                    final Color color = _tone(item.net);
+                    final String label = item.net >= 0
+                        ? 'TO RECEIVE'
+                        : 'TO PAY';
+                    return _ListCard(
+                      title: item.name,
+                      subtitle: label,
+                      icon: Icons.person_rounded,
+                      color: color,
+                      avatarText: item.name.trim().isEmpty
+                          ? 'P'
+                          : item.name.trim()[0].toUpperCase(),
+                      trailing: _signedMoney(item.net),
+                    );
+                  }),
               ],
-              itemCount: balances.length,
-              emptyState: const _EmptyState(
-                Icons.contact_page_rounded,
-                'No party balances found',
-              ),
-              itemBuilder: (BuildContext context, int index) {
-                final PartyBalance item = balances[index];
-                final Color color = _tone(item.net);
-                final String label = item.net >= 0 ? 'TO RECEIVE' : 'TO PAY';
-                return _ListCard(
-                  title: item.name,
-                  subtitle: label,
-                  icon: Icons.person_rounded,
-                  color: color,
-                  avatarText: item.name.trim().isEmpty
-                      ? 'P'
-                      : item.name.trim()[0].toUpperCase(),
-                  trailing: _signedMoney(item.net),
-                );
-              },
             ),
           ),
         ],
@@ -5880,7 +5543,9 @@ class _MilkScreenState extends State<MilkScreen> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
-              inputFormatters: <TextInputFormatter>[_decimalInputFormatter],
+              inputFormatters: <TextInputFormatter>[
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+              ],
               decoration: const InputDecoration(
                 hintText: 'Rate per KG (₹)',
                 prefixIcon: Icon(Icons.currency_rupee_rounded),
@@ -5896,6 +5561,7 @@ class _MilkScreenState extends State<MilkScreen> {
                     color: appleGreen,
                     semanticLabel: 'Create seller milk customer',
                     onTap: () {
+                      HapticFeedback.mediumImpact();
                       Navigator.pop(sheetContext, 'lene_wala');
                     },
                   ),
@@ -5908,6 +5574,7 @@ class _MilkScreenState extends State<MilkScreen> {
                     color: appleRed,
                     semanticLabel: 'Create buyer milk customer',
                     onTap: () {
+                      HapticFeedback.mediumImpact();
                       Navigator.pop(sheetContext, 'dene_wala');
                     },
                   ),
@@ -5924,13 +5591,11 @@ class _MilkScreenState extends State<MilkScreen> {
       return;
     }
     final String customerName = _cleanKey(name.text);
-    final double? customerRate = double.tryParse(rate.text.trim());
+    final double customerRate =
+        double.tryParse(rate.text) ?? LedgerMath.defaultMilkRate;
     name.dispose();
     rate.dispose();
-    if (customerName.isEmpty ||
-        customerRate == null ||
-        !customerRate.isFinite ||
-        customerRate <= 0) {
+    if (customerName.isEmpty || customerRate <= 0) {
       _toast(context, 'Enter a valid name and rate.', error: true);
       return;
     }
@@ -5989,41 +5654,43 @@ class _MilkScreenState extends State<MilkScreen> {
           ],
         ),
         Expanded(
-          child: _LazyLedgerList(
-            storageKey: 'milk-scroll',
-            header: <Widget>[
+          child: ListView(
+            key: const PageStorageKey<String>('milk-scroll'),
+            physics: const BouncingScrollPhysics(),
+            padding: UIConstants.screenPadding,
+            children: <Widget>[
               _SearchBox(
                 hint: 'Search customer…',
                 color: appleBlue,
                 onChanged: (String value) => setState(() => _query = value),
               ),
               const SizedBox(height: 16),
+              if (names.isEmpty)
+                const _EmptyState(
+                  Icons.water_drop_rounded,
+                  'No customers found',
+                  color: appleBlue,
+                  prominent: true,
+                )
+              else
+                ...names.map((String name) {
+                  final MilkTotals totals =
+                      projection.milkTotalsByProfile[name]!;
+                  final Color color = _tone(totals.netAmount);
+                  return _ListCard(
+                    title: name,
+                    subtitle: '${totals.netKg.abs().toStringAsFixed(2)} KG',
+                    icon: Icons.water_drop_rounded,
+                    color: color,
+                    avatarText: name.trim().isEmpty
+                        ? 'M'
+                        : name.trim()[0].toUpperCase(),
+                    trailing: _signedMoney(totals.netAmount),
+                    destinationBuilder: (_) =>
+                        MilkDetailScreen(sync: widget.sync, customerName: name),
+                  );
+                }),
             ],
-            itemCount: names.length,
-            emptyState: const _EmptyState(
-              Icons.water_drop_rounded,
-              'No customers found',
-              color: appleBlue,
-              prominent: true,
-            ),
-            itemBuilder: (BuildContext context, int index) {
-              final String name = names[index];
-              final MilkTotals totals = projection.milkTotalsByProfile[name]!;
-              final Color color = _tone(totals.netAmount);
-
-              return _ListCard(
-                title: name,
-                subtitle: '${totals.netKg.abs().toStringAsFixed(2)} KG',
-                icon: Icons.water_drop_rounded,
-                color: color,
-                avatarText: name.trim().isEmpty
-                    ? 'M'
-                    : name.trim()[0].toUpperCase(),
-                trailing: _signedMoney(totals.netAmount),
-                destinationBuilder: (_) =>
-                    MilkDetailScreen(sync: widget.sync, customerName: name),
-              );
-            },
           ),
         ),
       ],
@@ -6053,11 +5720,7 @@ class _TransactionPairButton extends StatelessWidget {
     final bool negative = icon == Icons.remove_rounded;
 
     return _Pressable(
-      onTap: () {
-        HapticFeedback.mediumImpact();
-        onTap();
-      },
-      haptics: false,
+      onTap: onTap,
       semanticLabel: semanticLabel ?? label,
       borderRadius: BorderRadius.circular(UIConstants.actionRadius),
       child: SizedBox(
@@ -6204,7 +5867,7 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
                       decimal: true,
                     ),
                     inputFormatters: <TextInputFormatter>[
-                      _decimalInputFormatter,
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                     ],
                     decoration: const InputDecoration(labelText: 'Morning KG'),
                   ),
@@ -6217,7 +5880,7 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
                       decimal: true,
                     ),
                     inputFormatters: <TextInputFormatter>[
-                      _decimalInputFormatter,
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                     ],
                     decoration: const InputDecoration(labelText: 'Evening KG'),
                   ),
@@ -6234,6 +5897,7 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
                     color: appleGreen,
                     semanticLabel: 'Save milk as given',
                     onTap: () {
+                      HapticFeedback.mediumImpact();
                       Navigator.pop(sheetContext, 'given');
                     },
                   ),
@@ -6246,6 +5910,7 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
                     color: appleRed,
                     semanticLabel: 'Save milk as taken',
                     onTap: () {
+                      HapticFeedback.mediumImpact();
                       Navigator.pop(sheetContext, 'taken');
                     },
                   ),
@@ -6358,7 +6023,7 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: widget.sync.contentChanges,
+    animation: widget.sync,
     builder: (BuildContext context, Widget? child) {
       final Map<String, dynamic> database = _map(widget.sync.state['milkDB']);
       final Map<String, dynamic>? profile = database[widget.customerName] is Map
@@ -6456,8 +6121,7 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
                         semanticLabel: 'Share this section as PDF',
                         compact: false,
                         onTap: () => unawaited(
-                          _sharePdfSafely(
-                            context,
+                          _ExportService.sharePdf(
                             '${widget.customerName} Milk Bill',
                             <String>[
                               'Date',
@@ -6537,7 +6201,7 @@ class _SoftShareButton extends StatelessWidget {
     final bool dark = Theme.of(context).brightness == Brightness.dark;
     final double viewportWidth = MediaQuery.sizeOf(context).width;
     final bool micro = compact && viewportWidth < 350;
-    final double height = compact ? UIConstants.compactButtonHeight : 52;
+    final double height = micro ? 46 : (compact ? 48 : 52);
     final double width = micro ? 96 : (compact ? 108 : 118);
     final double radius = compact ? 17 : 19;
 
@@ -6608,7 +6272,7 @@ class _MilkRecordsTable extends StatelessWidget {
   String _quantityCell(dynamic value) {
     final double number = LedgerMath.number(value);
     if (number == 0) return '-';
-    return _compactQuantityFormat.format(number);
+    return NumberFormat('0.##').format(number);
   }
 
   @override
@@ -6732,8 +6396,8 @@ class _MilkTableRow extends StatelessWidget {
     final DateTime? parsed = LedgerMath.strictDate('${row['date']}');
     final String day = parsed == null
         ? _displayDate(row['date'])
-        : _dayFormat.format(parsed);
-    final String month = parsed == null ? '' : _monthAbbrevFormat.format(parsed);
+        : DateFormat('dd').format(parsed);
+    final String month = parsed == null ? '' : DateFormat('MMM').format(parsed);
     final String total =
         '${flow == 'taken' ? '-' : '+'}${quantity.toStringAsFixed(2)}';
 
@@ -7084,7 +6748,7 @@ class _LedgerDateCell extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Text(
-              _dayFormat.format(parsed),
+              DateFormat('dd').format(parsed),
               style: TextStyle(
                 color: color,
                 fontSize: 15,
@@ -7094,7 +6758,7 @@ class _LedgerDateCell extends StatelessWidget {
             ),
             const SizedBox(height: 5),
             Text(
-              _monthAbbrevFormat.format(parsed),
+              DateFormat('MMM').format(parsed),
               style: TextStyle(
                 color: color,
                 fontSize: 12.5,
@@ -7112,7 +6776,7 @@ class _LedgerDateCell extends StatelessWidget {
         fit: BoxFit.scaleDown,
         alignment: Alignment.centerLeft,
         child: Text(
-          _dayMonthFormat.format(parsed),
+          DateFormat('dd MMM').format(parsed),
           maxLines: 1,
           style: TextStyle(
             color: color,
@@ -7269,6 +6933,7 @@ class _SalaryScreenState extends State<SalaryScreen> {
                     color: salaryGreen,
                     semanticLabel: 'Create employee who receives salary',
                     onTap: () {
+                      HapticFeedback.mediumImpact();
                       Navigator.pop(sheetContext, 'lene_wala');
                     },
                   ),
@@ -7281,6 +6946,7 @@ class _SalaryScreenState extends State<SalaryScreen> {
                     color: appleRed,
                     semanticLabel: 'Create employee whose salary I pay',
                     onTap: () {
+                      HapticFeedback.mediumImpact();
                       Navigator.pop(sheetContext, 'dene_wala');
                     },
                   ),
@@ -7356,41 +7022,39 @@ class _SalaryScreenState extends State<SalaryScreen> {
           ],
         ),
         Expanded(
-          child: _LazyLedgerList(
-            storageKey: 'salary-scroll',
-            header: <Widget>[
+          child: ListView(
+            key: const PageStorageKey<String>('salary-scroll'),
+            physics: const BouncingScrollPhysics(),
+            padding: UIConstants.screenPadding,
+            children: <Widget>[
               _SearchBox(
                 hint: 'Search name…',
                 color: appleBlue,
                 onChanged: (String value) => setState(() => _query = value),
               ),
               const SizedBox(height: 16),
+              if (names.isEmpty)
+                const _EmptyState(Icons.groups_rounded, 'No employees found')
+              else
+                ...names.map((String name) {
+                  final Map<String, dynamic> profile = _map(database[name]);
+                  final double net = projection.salaryNetByProfile[name]!;
+                  final Color color = _tone(net);
+                  return _ListCard(
+                    title: name,
+                    subtitle:
+                        '${profile['company'] ?? '—'} • ${net >= 0 ? 'To Receive' : 'To Pay'}',
+                    icon: Icons.currency_rupee_rounded,
+                    color: color,
+                    avatarText: name.trim().isEmpty
+                        ? 'S'
+                        : name.trim()[0].toUpperCase(),
+                    trailing: _signedMoney(net),
+                    destinationBuilder: (_) =>
+                        SalaryDetailScreen(sync: widget.sync, personName: name),
+                  );
+                }),
             ],
-            itemCount: names.length,
-            emptyState: const _EmptyState(
-              Icons.groups_rounded,
-              'No employees found',
-            ),
-            itemBuilder: (BuildContext context, int index) {
-              final String name = names[index];
-              final Map<String, dynamic> profile = _map(database[name]);
-              final double net = projection.salaryNetByProfile[name]!;
-              final Color color = _tone(net);
-
-              return _ListCard(
-                title: name,
-                subtitle:
-                    '${profile['company'] ?? '—'} • ${net >= 0 ? 'To Receive' : 'To Pay'}',
-                icon: Icons.currency_rupee_rounded,
-                color: color,
-                avatarText: name.trim().isEmpty
-                    ? 'S'
-                    : name.trim()[0].toUpperCase(),
-                trailing: _signedMoney(net),
-                destinationBuilder: (_) =>
-                    SalaryDetailScreen(sync: widget.sync, personName: name),
-              );
-            },
           ),
         ),
       ],
@@ -7430,7 +7094,9 @@ class _SalaryDetailScreenState extends State<SalaryDetailScreen> {
             controller: amount,
             autofocus: true,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: <TextInputFormatter>[_decimalInputFormatter],
+            inputFormatters: <TextInputFormatter>[
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+            ],
             decoration: const InputDecoration(
               labelText: 'Amount',
               prefixText: '₹ ',
@@ -7526,7 +7192,7 @@ class _SalaryDetailScreenState extends State<SalaryDetailScreen> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: widget.sync.contentChanges,
+    animation: widget.sync,
     builder: (BuildContext context, Widget? child) {
       final Map<String, dynamic> database = _map(widget.sync.state['salaryDB']);
       if (database[widget.personName] is! Map) {
@@ -7616,8 +7282,7 @@ class _SalaryDetailScreenState extends State<SalaryDetailScreen> {
                         semanticLabel: 'Share this section as PDF',
                         compact: false,
                         onTap: () => unawaited(
-                          _sharePdfSafely(
-                            context,
+                          _ExportService.sharePdf(
                             '${widget.personName} Salary',
                             <String>['Date', 'Amount'],
                             records
@@ -7728,7 +7393,9 @@ class _CreditScreenState extends State<CreditScreen> {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  inputFormatters: <TextInputFormatter>[_decimalInputFormatter],
+                  inputFormatters: <TextInputFormatter>[
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                  ],
                   decoration: const InputDecoration(
                     labelText: 'Amount',
                     prefixText: '₹ ',
@@ -7829,9 +7496,11 @@ class _CreditScreenState extends State<CreditScreen> {
           ],
         ),
         Expanded(
-          child: _LazyLedgerList(
-            storageKey: 'credit-scroll',
-            header: <Widget>[
+          child: ListView(
+            key: const PageStorageKey<String>('credit-scroll'),
+            physics: const BouncingScrollPhysics(),
+            padding: UIConstants.screenPadding,
+            children: <Widget>[
               _AmountHero(
                 label: net > 0
                     ? 'Net Balance / Profit'
@@ -7847,38 +7516,37 @@ class _CreditScreenState extends State<CreditScreen> {
                 onChanged: (String value) => setState(() => _query = value),
               ),
               const SizedBox(height: 16),
+              if (groups.isEmpty)
+                const _EmptyState(
+                  Icons.account_balance_wallet_rounded,
+                  'No credit records found',
+                )
+              else
+                ...groups.map((CreditPartySummary group) {
+                  final Color color = _tone(group.net);
+                  final String statusLabel = group.net > 0
+                      ? 'TO RECEIVE'
+                      : group.net < 0
+                      ? 'TO PAY'
+                      : 'SETTLED';
+
+                  return _ListCard(
+                    title: group.name,
+                    subtitle: 'Last entry: ${_displayDay(group.lastDate)}',
+                    icon: Icons.person_rounded,
+                    color: color,
+                    avatarText: group.name.trim().isEmpty
+                        ? 'C'
+                        : group.name.trim()[0].toUpperCase(),
+                    trailingLabel: statusLabel,
+                    trailing: _signedMoney(group.net),
+                    destinationBuilder: (_) => CreditDetailScreen(
+                      sync: widget.sync,
+                      personName: group.name,
+                    ),
+                  );
+                }),
             ],
-            itemCount: groups.length,
-            emptyState: const _EmptyState(
-              Icons.account_balance_wallet_rounded,
-              'No credit records found',
-            ),
-            itemBuilder: (BuildContext context, int index) {
-              final CreditPartySummary group = groups[index];
-              final Color color = _tone(group.net);
-
-              final String statusLabel = group.net > 0
-                  ? 'TO RECEIVE'
-                  : group.net < 0
-                  ? 'TO PAY'
-                  : 'SETTLED';
-
-              return _ListCard(
-                title: group.name,
-                subtitle: 'Last entry: ${_displayDay(group.lastDate)}',
-                icon: Icons.person_rounded,
-                color: color,
-                avatarText: group.name.trim().isEmpty
-                    ? 'C'
-                    : group.name.trim()[0].toUpperCase(),
-                trailingLabel: statusLabel,
-                trailing: _signedMoney(group.net),
-                destinationBuilder: (_) => CreditDetailScreen(
-                  sync: widget.sync,
-                  personName: group.name,
-                ),
-              );
-            },
           ),
         ),
       ],
@@ -7921,7 +7589,9 @@ class _CreditDetailScreenState extends State<CreditDetailScreen> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
-              inputFormatters: <TextInputFormatter>[_decimalInputFormatter],
+              inputFormatters: <TextInputFormatter>[
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+              ],
               decoration: const InputDecoration(
                 labelText: 'Amount',
                 prefixText: '₹ ',
@@ -7937,6 +7607,7 @@ class _CreditDetailScreenState extends State<CreditDetailScreen> {
                     color: appleGreen,
                     semanticLabel: 'Save credit as given',
                     onTap: () {
+                      HapticFeedback.mediumImpact();
                       Navigator.pop(sheetContext, 'credit');
                     },
                   ),
@@ -7949,6 +7620,7 @@ class _CreditDetailScreenState extends State<CreditDetailScreen> {
                     color: appleRed,
                     semanticLabel: 'Save credit as taken',
                     onTap: () {
+                      HapticFeedback.mediumImpact();
                       Navigator.pop(sheetContext, 'debit');
                     },
                   ),
@@ -8011,7 +7683,7 @@ class _CreditDetailScreenState extends State<CreditDetailScreen> {
     );
   }
 
-  Future<void> _deleteProfile() async {
+  Future<void> _deleteProfile(List<Map<String, dynamic>> records) async {
     if (!await _confirm(
       context,
       'Delete ${widget.personName}?',
@@ -8020,14 +7692,6 @@ class _CreditDetailScreenState extends State<CreditDetailScreen> {
       return;
     }
     if (!mounted) return;
-    final List<Map<String, dynamic>> records =
-        _rows(widget.sync.state['udharDB'])
-            .where(
-              (Map<String, dynamic> row) =>
-                  LedgerMath.cleanName(row['name']).toLowerCase() ==
-                  widget.personName.toLowerCase(),
-            )
-            .toList();
     final Map<String, dynamic> deletes = <String, dynamic>{
       for (final Map<String, dynamic> row in records)
         'udharDB/${row['id']}': null,
@@ -8044,14 +7708,13 @@ class _CreditDetailScreenState extends State<CreditDetailScreen> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: widget.sync.contentChanges,
+    animation: widget.sync,
     builder: (BuildContext context, Widget? child) {
       final List<Map<String, dynamic>> allRecords =
           _rows(widget.sync.state['udharDB'])
               .where(
                 (Map<String, dynamic> row) =>
-                    LedgerMath.cleanName(row['name']).toLowerCase() ==
-                    widget.personName.toLowerCase(),
+                    LedgerMath.cleanName(row['name']) == widget.personName,
               )
               .toList();
       final List<DateTime> availablePeriods = LedgerMath.recordPeriods(
@@ -8092,7 +7755,7 @@ class _CreditDetailScreenState extends State<CreditDetailScreen> {
                 _DeleteActionButton(
                   padding: const EdgeInsets.only(left: 6),
                   semanticLabel: 'Delete credit profile',
-                  onTap: () => unawaited(_deleteProfile()),
+                  onTap: () => unawaited(_deleteProfile(allRecords)),
                 ),
               ],
             ),
@@ -8132,8 +7795,7 @@ class _CreditDetailScreenState extends State<CreditDetailScreen> {
                         semanticLabel: 'Share this section as PDF',
                         compact: false,
                         onTap: () => unawaited(
-                          _sharePdfSafely(
-                            context,
+                          _ExportService.sharePdf(
                             '${widget.personName} Credit Ledger',
                             <String>['Date', 'Type', 'Amount'],
                             records
@@ -8219,9 +7881,8 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
           (Map<String, dynamic> a, Map<String, dynamic> b) =>
               '${b['date'] ?? ''}'.compareTo('${a['date'] ?? ''}'),
         );
-    await _sharePdfSafely(
-      context,
-      'Monthly Expenses - ${_monthYearFormat.format(now)}',
+    await _ExportService.sharePdf(
+      'Monthly Expenses - ${DateFormat('MMMM yyyy').format(now)}',
       <String>['Date', 'Category', 'Amount'],
       records
           .map(
@@ -8264,7 +7925,9 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
             controller: amount,
             autofocus: fixedCategory != null,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: <TextInputFormatter>[_decimalInputFormatter],
+            inputFormatters: <TextInputFormatter>[
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+            ],
             decoration: const InputDecoration(
               labelText: 'Amount',
               prefixText: '₹ ',
@@ -8337,9 +8000,11 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
           ],
         ),
         Expanded(
-          child: _LazyLedgerList(
-            storageKey: 'expense-scroll',
-            header: <Widget>[
+          child: ListView(
+            key: const PageStorageKey<String>('expense-scroll'),
+            physics: const BouncingScrollPhysics(),
+            padding: UIConstants.screenPadding,
+            children: <Widget>[
               _AmountHero(
                 label: 'Month Expense',
                 value: _money(total),
@@ -8347,29 +8012,26 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
               ),
               const SizedBox(height: 24),
               const _SectionTitle('Categories', color: appleBlue),
-            ],
-            itemCount: groups.length,
-            emptyState: const _EmptyState(
-              premiumExpenseIcon,
-              'No expenses this month',
-            ),
-            itemBuilder: (BuildContext context, int index) {
-              final ExpenseCategorySummary group = groups[index];
-
-              return _ListCard(
-                title: group.category,
-                subtitle: 'Last entry: ${_displayDay(group.lastDate)}',
-                icon: premiumExpenseIcon,
-                color: semanticRed,
-                trailing: group.monthTotal > 0
-                    ? '-${_money(group.monthTotal)}'
-                    : '—',
-                destinationBuilder: (_) => ExpenseDetailScreen(
-                  sync: widget.sync,
-                  category: group.category,
+              if (groups.isEmpty)
+                const _EmptyState(premiumExpenseIcon, 'No expenses this month')
+              else
+                ...groups.map(
+                  (ExpenseCategorySummary group) => _ListCard(
+                    title: group.category,
+                    // EXPENSE_LAST_ENTRY_ONLY_V1
+                    subtitle: 'Last entry: ${_displayDay(group.lastDate)}',
+                    icon: premiumExpenseIcon,
+                    color: semanticRed,
+                    trailing: group.monthTotal > 0
+                        ? '-${_money(group.monthTotal)}'
+                        : '—',
+                    destinationBuilder: (_) => ExpenseDetailScreen(
+                      sync: widget.sync,
+                      category: group.category,
+                    ),
+                  ),
                 ),
-              );
-            },
+            ],
           ),
         ),
       ],
@@ -8409,7 +8071,9 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
             controller: amount,
             autofocus: true,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: <TextInputFormatter>[_decimalInputFormatter],
+            inputFormatters: <TextInputFormatter>[
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+            ],
             decoration: const InputDecoration(
               labelText: 'Amount',
               prefixText: '₹ ',
@@ -8478,7 +8142,7 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
     );
   }
 
-  Future<void> _deleteCategory() async {
+  Future<void> _deleteCategory(List<Map<String, dynamic>> allRecords) async {
     if (!await _confirm(
       context,
       'Delete ${widget.category}?',
@@ -8487,14 +8151,6 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
       return;
     }
     if (!mounted) return;
-    final List<Map<String, dynamic>> allRecords =
-        _rows(widget.sync.state['expenseDB'])
-            .where(
-              (Map<String, dynamic> row) =>
-                  _cleanKey(row['category']).toLowerCase() ==
-                  widget.category.toLowerCase(),
-            )
-            .toList();
     final Map<String, dynamic> deletes = <String, dynamic>{
       for (final Map<String, dynamic> row in allRecords)
         'expenseDB/${row['id']}': null,
@@ -8514,7 +8170,7 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: widget.sync.contentChanges,
+    animation: widget.sync,
     builder: (BuildContext context, Widget? child) {
       final List<Map<String, dynamic>> allRecords =
           _rows(widget.sync.state['expenseDB'])
@@ -8562,7 +8218,7 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                 _DeleteActionButton(
                   padding: const EdgeInsets.only(left: 6),
                   semanticLabel: 'Delete expense category',
-                  onTap: () => unawaited(_deleteCategory()),
+                  onTap: () => unawaited(_deleteCategory(allRecords)),
                 ),
               ],
             ),
@@ -8598,8 +8254,7 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
                         semanticLabel: 'Share this section as PDF',
                         compact: false,
                         onTap: () => unawaited(
-                          _sharePdfSafely(
-                            context,
+                          _ExportService.sharePdf(
                             '${widget.category} Expenses',
                             <String>['Date', 'Amount'],
                             records
@@ -8834,11 +8489,14 @@ class _DiaryEditorSheetState extends State<_DiaryEditorSheet> {
         ),
       ],
       const SizedBox(height: 20),
-      _PrimaryButton(
-        label: _saving ? 'Saving…' : 'Save Page',
-        color: diaryOrange,
-        icon: _saving ? Icons.sync_rounded : Icons.save_rounded,
-        onTap: _saving ? null : () => unawaited(_submit()),
+      IgnorePointer(
+        ignoring: _saving,
+        child: _PrimaryButton(
+          label: _saving ? 'Saving…' : 'Save Page',
+          color: diaryOrange,
+          icon: _saving ? Icons.sync_rounded : Icons.save_rounded,
+          onTap: () => unawaited(_submit()),
+        ),
       ),
     ],
   );
@@ -8972,8 +8630,6 @@ class _DiaryScreenState extends State<DiaryScreen> {
   }
 
   Future<void> _selectPeriod(int month, int year) async {
-    final int previousMonth = _month;
-    final int previousYear = _year;
     setState(() {
       _month = month;
       _year = year;
@@ -8981,15 +8637,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
     try {
       await widget.sync.ensureDiaryMonthLoaded(year, month);
     } catch (error) {
-      if (!mounted) return;
-      // Do not let an older failed request undo a newer user selection.
-      if (_month == month && _year == year) {
-        setState(() {
-          _month = previousMonth;
-          _year = previousYear;
-        });
-      }
-      _toast(context, '$error', error: true);
+      if (mounted) _toast(context, '$error', error: true);
     }
   }
 
@@ -9318,7 +8966,7 @@ class _DiaryDetailScreenState extends State<DiaryDetailScreen> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: widget.sync.contentChanges,
+    animation: widget.sync,
     builder: (BuildContext context, Widget? child) {
       Map<String, dynamic>? entry;
       for (final Map<String, dynamic> row in _rows(
@@ -9352,24 +9000,18 @@ class _DiaryDetailScreenState extends State<DiaryDetailScreen> {
                   icon: Icons.edit_rounded,
                   color: diaryOrange,
                   semanticLabel: 'Edit diary page',
-                  onTap: _actionInFlight
-                      ? null
-                      : () => unawaited(_edit(context, current)),
+                  onTap: () => unawaited(_edit(context, current)),
                 ),
                 _CircleAction(
                   icon: Icons.share_rounded,
                   color: appleBlue,
                   semanticLabel: 'Share diary page',
-                  onTap: _actionInFlight
-                      ? null
-                      : () => unawaited(_share(context, current)),
+                  onTap: () => unawaited(_share(context, current)),
                 ),
                 _DeleteActionButton(
                   padding: const EdgeInsets.only(left: 6),
                   semanticLabel: 'Delete diary page',
-                  onTap: _actionInFlight
-                      ? null
-                      : () => unawaited(_delete(context)),
+                  onTap: () => unawaited(_delete(context)),
                 ),
               ],
             ),
@@ -9579,34 +9221,37 @@ class _BusinessScreenState extends State<BusinessScreen> {
           ],
         ),
         Expanded(
-          child: _LazyLedgerList(
-            storageKey: 'business-scroll',
-            header: <Widget>[
+          child: ListView(
+            key: const PageStorageKey<String>('business-scroll'),
+            physics: const BouncingScrollPhysics(),
+            padding: UIConstants.screenPadding,
+            children: <Widget>[
               _SearchBox(
                 hint: 'Search account…',
                 onChanged: (String value) => setState(() => _query = value),
               ),
               const SizedBox(height: 16),
+              if (names.isEmpty)
+                const _EmptyState(
+                  Icons.business_center_rounded,
+                  'No business khatas added yet',
+                )
+              else
+                ...names.map((String name) {
+                  final int count = recordCounts[name]!;
+                  return _ListCard(
+                    title: name,
+                    subtitle: '$count Records Logged',
+                    icon: Icons.business_center_rounded,
+                    color: appleBlue,
+                    onDelete: () => unawaited(_deleteProject(name)),
+                    destinationBuilder: (_) => BusinessDetailScreen(
+                      sync: widget.sync,
+                      projectName: name,
+                    ),
+                  );
+                }),
             ],
-            itemCount: names.length,
-            emptyState: const _EmptyState(
-              Icons.business_center_rounded,
-              'No business khatas added yet',
-            ),
-            itemBuilder: (BuildContext context, int index) {
-              final String name = names[index];
-              final int count = recordCounts[name]!;
-
-              return _ListCard(
-                title: name,
-                subtitle: '$count Records Logged',
-                icon: Icons.business_center_rounded,
-                color: appleBlue,
-                onDelete: () => unawaited(_deleteProject(name)),
-                destinationBuilder: (_) =>
-                    BusinessDetailScreen(sync: widget.sync, projectName: name),
-              );
-            },
           ),
         ),
       ],
@@ -9614,7 +9259,7 @@ class _BusinessScreenState extends State<BusinessScreen> {
   }
 }
 
-class BusinessDetailScreen extends StatefulWidget {
+class BusinessDetailScreen extends StatelessWidget {
   const BusinessDetailScreen({
     required this.sync,
     required this.projectName,
@@ -9623,17 +9268,6 @@ class BusinessDetailScreen extends StatefulWidget {
 
   final LedgerSyncService sync;
   final String projectName;
-
-  @override
-  State<BusinessDetailScreen> createState() => _BusinessDetailScreenState();
-}
-
-class _BusinessDetailScreenState extends State<BusinessDetailScreen> {
-  int _month = DateTime.now().month;
-  int _year = DateTime.now().year;
-
-  LedgerSyncService get sync => widget.sync;
-  String get projectName => widget.projectName;
 
   Future<void> _addEntry(BuildContext context) async {
     final TextEditingController date = TextEditingController(text: _today());
@@ -9664,7 +9298,9 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen> {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  inputFormatters: <TextInputFormatter>[_decimalInputFormatter],
+                  inputFormatters: <TextInputFormatter>[
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                  ],
                   decoration: const InputDecoration(
                     labelText: 'Amount',
                     prefixText: '₹ ',
@@ -9731,7 +9367,7 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen> {
       return;
     }
     final String id = _newId('prj');
-    final bool saved = await _runMutation(
+    await _runMutation(
       context,
       () => sync.write('projectDB/$projectName/records/$id', <String, dynamic>{
         'id': id,
@@ -9742,12 +9378,6 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen> {
       }, reason: 'business-entry-save'),
       'Business entry saved!',
     );
-    if (!saved || !mounted) return;
-    final DateTime parsed = LedgerMath.strictDate(entryDate)!;
-    setState(() {
-      _month = parsed.month;
-      _year = parsed.year;
-    });
   }
 
   Future<void> _deleteEntry(BuildContext context, String id) async {
@@ -9793,7 +9423,7 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: sync.contentChanges,
+    animation: sync,
     builder: (BuildContext context, Widget? child) {
       final Map<String, dynamic> database = _map(sync.state['projectDB']);
       if (database[projectName] is! Map) {
@@ -9807,35 +9437,11 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen> {
         );
       }
       final Map<String, dynamic> project = _map(database[projectName]);
-
-      final List<Map<String, dynamic>> allRecords = _rows(project['records']);
-
-      final List<DateTime> availablePeriods = LedgerMath.recordPeriods(
-        allRecords,
-      );
-
-      final DateTime? selectedPeriod = LedgerMath.resolveRecordPeriod(
-        availablePeriods,
-        month: _month,
-        year: _year,
-      );
-
-      final int selectedMonth = selectedPeriod?.month ?? _month;
-
-      final int selectedYear = selectedPeriod?.year ?? _year;
-
-      final List<Map<String, dynamic>> records =
-          allRecords
-              .where(
-                (Map<String, dynamic> row) =>
-                    LedgerMath.inMonth(row, selectedMonth, selectedYear),
-              )
-              .toList()
-            ..sort(
-              (Map<String, dynamic> a, Map<String, dynamic> b) =>
-                  '${b['date']}'.compareTo('${a['date']}'),
-            );
-
+      final List<Map<String, dynamic>> records = _rows(project['records'])
+        ..sort(
+          (Map<String, dynamic> a, Map<String, dynamic> b) =>
+              '${b['date']}'.compareTo('${a['date']}'),
+        );
       final Map<String, double> totals = <String, double>{
         for (final String key in _businessTones.keys) key: 0,
       };
@@ -9866,21 +9472,6 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen> {
                 physics: const BouncingScrollPhysics(),
                 padding: UIConstants.screenPadding,
                 children: <Widget>[
-                  _MonthYearPicker(
-                    month: selectedMonth,
-                    year: selectedYear,
-                    availablePeriods: availablePeriods,
-                    color: appleBlue,
-                    onChanged: (int month, int year) {
-                      setState(() {
-                        _month = month;
-                        _year = year;
-                      });
-                    },
-                  ),
-
-                  const SizedBox(height: 16),
-
                   if (totals.values.any((double value) => value > 0))
                     GridView.count(
                       crossAxisCount: 2,
@@ -9944,8 +9535,7 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen> {
                         semanticLabel: 'Share this section as PDF',
                         compact: false,
                         onTap: () => unawaited(
-                          _sharePdfSafely(
-                            context,
+                          _ExportService.sharePdf(
                             '$projectName Business Khata',
                             <String>['Date', 'Detail', 'Type', 'Amount'],
                             records.map((Map<String, dynamic> row) {
@@ -10336,20 +9926,6 @@ class _AiBatchProgressCard extends StatelessWidget {
   }
 }
 
-const String _defaultGeminiModel = 'gemini-2.5-flash';
-const Set<String> _supportedGeminiModels = <String>{
-  'gemini-2.5-flash',
-  'gemini-3.6-flash',
-};
-
-String _normalizeGeminiModel(String? value) {
-  final String model = value?.trim() ?? '';
-  // Gemini 2.0 Flash was shut down; migrate persisted legacy selections to
-  // Google's replacement instead of letting the request fail at runtime.
-  if (model == 'gemini-2.0-flash') return 'gemini-3.6-flash';
-  return _supportedGeminiModels.contains(model) ? model : _defaultGeminiModel;
-}
-
 class AiHubScreen extends StatefulWidget {
   const AiHubScreen({required this.sync, super.key});
 
@@ -10377,7 +9953,7 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
   ];
   final List<_AiMessage> _geminiHistory = <_AiMessage>[];
   String _apiKey = '';
-  String _model = _defaultGeminiModel;
+  String _model = 'gemini-2.5-flash';
   String _externalSnapshotId = '';
   String _externalStateFingerprint = '';
   String _externalOwnerUid = '';
@@ -10392,21 +9968,7 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
 
   String get _currentOwnerUid => widget.sync.user?.uid.trim() ?? '';
 
-  void _requireCurrentAiSession(_AccountSessionScope session) {
-    if (!mounted || !session.isCurrent) {
-      throw const AiBridgeException(
-        'Account changed while this AI operation was running.',
-      );
-    }
-  }
-
   String _scopedSetting(String base, String ownerUid) => '$base.$ownerUid';
-
-  String _apiKeyStorageKey(String ownerUid) =>
-      _scopedSetting('gemini.apiKey', ownerUid);
-
-  String _modelSettingKey(String ownerUid) =>
-      _scopedSetting('gemini.model', ownerUid);
 
   List<String> _decodeFingerprintHistory(String? encoded) {
     final String raw = encoded?.trim() ?? '';
@@ -10433,18 +9995,10 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _loadSettings() async {
+    final String key = await _secureStorage.read(key: 'gemini.apiKey') ?? '';
+    final String model =
+        widget.sync.readSetting('gemini.model') ?? 'gemini-2.5-flash';
     final String ownerUid = _currentOwnerUid;
-    if (ownerUid.isEmpty) return;
-    String key = '';
-    try {
-      key = await _secureStorage.read(key: _apiKeyStorageKey(ownerUid)) ?? '';
-    } catch (error, stackTrace) {
-      debugPrint('AI secure storage read failed: $error\n$stackTrace');
-    }
-    if (!mounted || _currentOwnerUid != ownerUid) return;
-    final String model = _normalizeGeminiModel(
-      widget.sync.readSetting(_modelSettingKey(ownerUid)),
-    );
     final AiBatchJob? storedBatch = ownerUid.isEmpty
         ? null
         : AiBatchJob.tryDecode(
@@ -10472,7 +10026,7 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
               _scopedSetting(_completedFingerprintSetting, ownerUid),
             ),
           );
-    if (mounted && _currentOwnerUid == ownerUid) {
+    if (mounted) {
       setState(() {
         _apiKey = key;
         _model = model;
@@ -10508,110 +10062,95 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _configure() async {
-    final String ownerUid = _currentOwnerUid;
-    if (ownerUid.isEmpty) {
-      _toast(context, 'Please sign in before configuring AI.', error: true);
-      return;
-    }
     final TextEditingController key = TextEditingController(text: _apiKey);
     String model = _model;
     bool obscure = true;
-    try {
-      final bool? save = await _openSheet<bool>(
-        context,
-        StatefulBuilder(
-          builder: (BuildContext sheetContext, StateSetter setSheetState) =>
-              _SheetFrame(
-                title: 'Gemini AI Setup',
-                beforeTitle: _ExternalAiConnectPrelude(
-                  onTap: () => unawaited(_shareExternalAiPackage(sheetContext)),
-                ),
-                children: <Widget>[
-                  TextField(
-                    controller: key,
-                    obscureText: obscure,
-                    enableSuggestions: false,
-                    autocorrect: false,
-                    decoration: InputDecoration(
-                      labelText: 'Gemini API key',
-                      prefixIcon: const Icon(Icons.key_rounded),
-                      suffixIcon: _BounceIconButton(
-                        tooltip: obscure ? 'Show API key' : 'Hide API key',
-                        onTap: () => setSheetState(() => obscure = !obscure),
-                        icon: Icon(
-                          obscure
-                              ? Icons.visibility_rounded
-                              : Icons.visibility_off_rounded,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: model,
-                    decoration: const InputDecoration(labelText: 'Model'),
-                    items: const <DropdownMenuItem<String>>[
-                      DropdownMenuItem(
-                        value: 'gemini-2.5-flash',
-                        child: Text('Gemini 2.5 Flash'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'gemini-3.6-flash',
-                        child: Text('Gemini 3.6 Flash'),
-                      ),
-                    ],
-                    onChanged: (String? value) {
-                      if (value != null) {
-                        HapticFeedback.selectionClick();
-                        setSheetState(() => model = value);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'The key is stored in Android secure storage and sent only to Google Gemini. It is never uploaded to Firebase.',
-                    style: TextStyle(
-                      color: systemGray,
-                      fontSize: 11.5,
-                      height: 1.4,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  _PrimaryButton(
-                    label: 'Save AI Setup',
-                    icon: Icons.lock_rounded,
-                    color: const Color(0xFF8E62D9),
-                    onTap: () => Navigator.pop(sheetContext, true),
-                  ),
-                ],
+    final bool? save = await _openSheet<bool>(
+      context,
+      StatefulBuilder(
+        builder: (BuildContext sheetContext, StateSetter setSheetState) =>
+            _SheetFrame(
+              title: 'Gemini AI Setup',
+              beforeTitle: _ExternalAiConnectPrelude(
+                onTap: () => unawaited(_shareExternalAiPackage(sheetContext)),
               ),
-        ),
-      );
-      if (save != true || !mounted || _currentOwnerUid != ownerUid) return;
+              children: <Widget>[
+                TextField(
+                  controller: key,
+                  obscureText: obscure,
+                  enableSuggestions: false,
+                  autocorrect: false,
+                  decoration: InputDecoration(
+                    labelText: 'Gemini API key',
+                    prefixIcon: const Icon(Icons.key_rounded),
+                    suffixIcon: _BounceIconButton(
+                      tooltip: obscure ? 'Show API key' : 'Hide API key',
+                      onTap: () => setSheetState(() => obscure = !obscure),
+                      icon: Icon(
+                        obscure
+                            ? Icons.visibility_rounded
+                            : Icons.visibility_off_rounded,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: model,
+                  decoration: const InputDecoration(labelText: 'Model'),
+                  items: const <DropdownMenuItem<String>>[
+                    DropdownMenuItem(
+                      value: 'gemini-2.5-flash',
+                      child: Text('Gemini 2.5 Flash'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'gemini-2.0-flash',
+                      child: Text('Gemini 2.0 Flash'),
+                    ),
+                  ],
+                  onChanged: (String? value) {
+                    if (value != null) {
+                      HapticFeedback.selectionClick();
+                      setSheetState(() => model = value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'The key is stored in Android secure storage and sent only to Google Gemini. It is never uploaded to Firebase.',
+                  style: TextStyle(
+                    color: systemGray,
+                    fontSize: 11.5,
+                    height: 1.4,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                _PrimaryButton(
+                  label: 'Save AI Setup',
+                  icon: Icons.lock_rounded,
+                  color: const Color(0xFF8E62D9),
+                  onTap: () => Navigator.pop(sheetContext, true),
+                ),
+              ],
+            ),
+      ),
+    );
+    if (save == true && mounted) {
       final String cleanKey = key.text.trim();
-      try {
-        await _secureStorage.write(
-          key: _apiKeyStorageKey(ownerUid),
-          value: cleanKey,
-        );
-        await widget.sync.writeSetting(_modelSettingKey(ownerUid), model);
-      } catch (error, stackTrace) {
-        debugPrint('AI setup save failed: $error\n$stackTrace');
-        if (mounted && _currentOwnerUid == ownerUid) {
-          _toast(context, 'AI setup could not be saved.', error: true);
-        }
-        return;
+      await _secureStorage.write(key: 'gemini.apiKey', value: cleanKey);
+      await widget.sync.writeSetting('gemini.model', model);
+      if (mounted) {
+        setState(() {
+          _apiKey = cleanKey;
+          _model = model;
+        });
       }
-      if (!mounted || _currentOwnerUid != ownerUid) return;
-      setState(() {
-        _apiKey = cleanKey;
-        _model = model;
-      });
-      _toast(context, 'AI setup saved securely.');
-    } finally {
-      key.dispose();
+      if (mounted) {
+        _toast(context, 'AI setup saved securely.');
+      }
     }
+    key.dispose();
   }
 
   Future<void> _shareExternalAiPackage(BuildContext sheetContext) async {
@@ -10625,11 +10164,7 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
       return;
     }
     final String ownerUid = _currentOwnerUid;
-    final _AccountSessionScope? session = _AccountSessionScope.maybeOf(context);
-    if (ownerUid.isEmpty ||
-        session == null ||
-        session.userId != ownerUid ||
-        !session.isCurrent) {
+    if (ownerUid.isEmpty) {
       _toast(
         context,
         'Please sign in before sharing ledger data.',
@@ -10646,22 +10181,19 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
       dangerous: false,
     );
     if (!allowed || !mounted) return;
-    if (!session.isCurrent || _currentOwnerUid != ownerUid) {
+    if (_currentOwnerUid != ownerUid) {
       _toast(context, 'Account changed. Open the AI setup again.', error: true);
       return;
     }
     setState(() => _sharingExternal = true);
     try {
       await widget.sync.ensureAllDiaryMonthsLoaded();
-      if (!mounted || !session.isCurrent) return;
       final AiBridgePackage package = AiBridgeProtocol.buildPackage(
         state: widget.sync.state,
         generatedAt: DateTime.now(),
         snapshotId: _newId('aip'),
       );
-      if (!session.isCurrent) return;
       await Clipboard.setData(ClipboardData(text: package.prompt));
-      if (!mounted || !session.isCurrent) return;
       await widget.sync.writeSetting(
         _scopedSetting(_externalSnapshotIdSetting, ownerUid),
         package.snapshotId,
@@ -10670,9 +10202,8 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
         _scopedSetting(_externalFingerprintSetting, ownerUid),
         package.stateFingerprint,
       );
-      if (!mounted || !session.isCurrent) return;
       if (sheetContext.mounted) Navigator.pop(sheetContext);
-      if (!mounted || !session.isCurrent) return;
+      if (!mounted) return;
       setState(() {
         _externalSnapshotId = package.snapshotId;
         _externalStateFingerprint = package.stateFingerprint;
@@ -10688,7 +10219,6 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
       });
       _scrollToEnd();
       await Future<void>.delayed(const Duration(milliseconds: 120));
-      if (!mounted || !session.isCurrent) return;
       await SharePlus.instance.share(
         ShareParams(
           files: <XFile>[
@@ -10702,14 +10232,14 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
           subject: 'Aarish Dairy Pro — Connect with Other AI',
         ),
       );
-      if (mounted && session.isCurrent) {
+      if (mounted) {
         _toast(
           context,
           'TXT ready and AI prompt copied. Choose an AI or Save to Files.',
         );
       }
     } catch (_) {
-      if (mounted && session.isCurrent) {
+      if (mounted) {
         _toast(
           context,
           'Could not open the share menu. Tap Connect with Other AI to retry.',
@@ -10847,11 +10377,6 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
       );
       return;
     }
-    final _AccountSessionScope? session = _AccountSessionScope.maybeOf(context);
-    if (session == null || !session.isCurrent) {
-      _toast(context, 'Account session changed. Reopen AI and try again.', error: true);
-      return;
-    }
     final bool localEnvelope = AiBridgeProtocol.looksLikeEnvelope(prompt);
     if (!localEnvelope && prompt.length > 12000) {
       _toast(
@@ -10874,44 +10399,23 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
     _scrollToEnd();
     try {
       await widget.sync.ensureAllDiaryMonthsLoaded();
-      _requireCurrentAiSession(session);
-      Map<String, dynamic>? directRequestState;
-      String? directRequestFingerprint;
       final _AiOutcome outcome;
       if (localEnvelope) {
         outcome = _GeminiLedgerClient.parseEnvelope(prompt);
       } else {
-        directRequestState = LedgerCodec.normalizeState(widget.sync.state);
-        directRequestFingerprint = AiBridgeProtocol.stateFingerprint(
-          directRequestState,
-        );
         if (_apiKey.isEmpty) {
           await _configure();
-          _requireCurrentAiSession(session);
           if (_apiKey.isEmpty) {
             throw const LedgerSyncException('Gemini API key is required.');
-          }
-          if (AiBridgeProtocol.stateFingerprint(widget.sync.state) !=
-              directRequestFingerprint) {
-            throw const AiBridgeException(
-              'Ledger changed while AI setup was open. Send the request again.',
-            );
           }
         }
         outcome = await _GeminiLedgerClient.generate(
           apiKey: _apiKey,
           model: _model,
           userText: prompt,
-          state: directRequestState,
+          state: widget.sync.state,
           history: _geminiHistory,
         );
-        _requireCurrentAiSession(session);
-        if (AiBridgeProtocol.stateFingerprint(widget.sync.state) !=
-            directRequestFingerprint) {
-          throw const AiBridgeException(
-            'Ledger changed while Gemini was responding. Send the request again.',
-          );
-        }
       }
       if (localEnvelope && outcome.actions.isNotEmpty) {
         if (_completedFingerprints.contains(outcome.envelopeFingerprint)) {
@@ -10921,14 +10425,10 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
         }
         final bool verified = await _verifyExternalEnvelope(outcome);
         if (!verified) return;
-        _requireCurrentAiSession(session);
       }
-      final Map<String, dynamic> validationState = localEnvelope
-          ? widget.sync.state
-          : directRequestState!;
       final AiActionPlan plan = AiBridgeProtocol.validateAndNormalize(
         rawActions: outcome.actions,
-        state: validationState,
+        state: widget.sync.state,
         newId: _newId,
       );
       if (!localEnvelope) {
@@ -10945,15 +10445,7 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
       if (plan.actions.isNotEmpty) {
         if (!mounted) return;
         final bool apply = await _confirmAiActions(plan);
-        _requireCurrentAiSession(session);
         if (apply && mounted) {
-          if (!localEnvelope &&
-              AiBridgeProtocol.stateFingerprint(widget.sync.state) !=
-                  directRequestFingerprint) {
-            throw const AiBridgeException(
-              'Ledger changed during AI review. Send the request again.',
-            );
-          }
           await _startAiBatch(
             plan,
             fingerprint: localEnvelope
@@ -10966,7 +10458,7 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
           reviewCancelled = true;
         }
       }
-      if (mounted && session.isCurrent) {
+      if (mounted) {
         final String? statusMessage = plan.actions.isEmpty
             ? outcome.reply.isEmpty
                   ? 'Koi change zaroori nahi tha.'
@@ -10982,7 +10474,7 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
         }
       }
     } catch (error) {
-      if (mounted && session.isCurrent) {
+      if (mounted) {
         setState(() {
           _messages.add(
             _AiMessage(
@@ -10994,7 +10486,7 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
       }
     } finally {
       if (mounted) setState(() => _busy = false);
-      if (mounted && session.isCurrent) _scrollToEnd();
+      _scrollToEnd();
     }
   }
 
@@ -11632,12 +11124,10 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
                   onTap: _busy || _batchJob != null
                       ? null
                       : () => unawaited(_send()),
-                  borderRadius: BorderRadius.circular(
-                    UIConstants.minTapTarget / 2,
-                  ),
+                  borderRadius: BorderRadius.circular(23),
                   child: Container(
-                    width: UIConstants.minTapTarget,
-                    height: UIConstants.minTapTarget,
+                    width: 46,
+                    height: 46,
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
                         colors: <Color>[Color(0xFF4285F4), Color(0xFF9B72CB)],
@@ -11677,10 +11167,8 @@ class _GeminiLedgerClient {
     required Map<String, dynamic> state,
     required List<_AiMessage> history,
   }) async {
-    final String safeModel = _normalizeGeminiModel(model);
-    final Uri uri = Uri.https(
-      'generativelanguage.googleapis.com',
-      '/v1beta/models/$safeModel:generateContent',
+    final Uri uri = Uri.parse(
+      'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=${Uri.encodeQueryComponent(apiKey)}',
     );
     final String snapshot = jsonEncode(_compactState(state));
     final String instruction = AiBridgeProtocol.directGeminiInstruction(
@@ -11689,10 +11177,7 @@ class _GeminiLedgerClient {
     final http.Response response = await http
         .post(
           uri,
-          headers: <String, String>{
-            'Content-Type': 'application/json',
-            'x-goog-api-key': apiKey,
-          },
+          headers: const <String, String>{'Content-Type': 'application/json'},
           body: jsonEncode(<String, dynamic>{
             'systemInstruction': <String, dynamic>{
               'parts': <Map<String, String>>[
@@ -11719,9 +11204,7 @@ class _GeminiLedgerClient {
             ],
             'generationConfig': <String, dynamic>{
               'temperature': 0.15,
-              'maxOutputTokens': safeModel.startsWith('gemini-2.5')
-                  ? 32768
-                  : 8192,
+              'maxOutputTokens': model.startsWith('gemini-2.5') ? 32768 : 8192,
               'responseMimeType': 'application/json',
             },
           }),
@@ -12008,47 +11491,25 @@ class _ExportButtonContent extends StatelessWidget {
   );
 }
 
-final Set<String> _activeExportSessions = <String>{};
-
 Future<void> _showExportCenter(
   BuildContext context,
   LedgerSyncService sync,
 ) async {
-  final _AccountSessionScope? session = _AccountSessionScope.maybeOf(context);
-  if (session == null || !session.isCurrent) return;
   final _ExportChoice? choice = await _openSheet<_ExportChoice>(
     context,
     const _ExportCenterSheet(),
   );
-  if (choice == null || !context.mounted || !session.isCurrent) return;
-  final String operationKey = session.operationKey;
-  if (!_activeExportSessions.add(operationKey)) {
-    _toast(context, 'An export is already in progress.');
-    return;
-  }
+  if (choice == null || !context.mounted) return;
   try {
     if (choice.scope == _ExportScope.all ||
         choice.scope == _ExportScope.diary) {
       await sync.ensureAllDiaryMonthsLoaded();
-      if (!context.mounted || !session.isCurrent) return;
     }
-    final Map<String, dynamic> exportState = LedgerCodec.normalizeState(sync.state);
-    if (!session.isCurrent) return;
-    await _ExportService.share(
-      exportState,
-      choice,
-      stillCurrent: () => session.isCurrent,
-    );
-  } catch (error, stackTrace) {
-    debugPrint('Export failed: $error\n$stackTrace');
-    if (context.mounted && session.isCurrent) {
-      final String message = error is LedgerSyncException
-          ? error.message
-          : 'Export failed. Please try again.';
-      _toast(context, message, error: true);
+    await _ExportService.share(sync.state, choice);
+  } catch (_) {
+    if (context.mounted) {
+      _toast(context, 'Export failed. Please try again.', error: true);
     }
-  } finally {
-    _activeExportSessions.remove(operationKey);
   }
 }
 
@@ -12357,9 +11818,8 @@ class _ExportService {
   static Future<void> sharePdf(
     String title,
     List<String> headers,
-    List<List<String>> rows, {
-    bool Function()? stillCurrent,
-  }) async {
+    List<List<String>> rows,
+  ) async {
     final pw.Font pdfRegular = pw.Font.ttf(
       await rootBundle.load('assets/fonts/NotoSansDevanagari-Regular.ttf'),
     );
@@ -12450,11 +11910,6 @@ class _ExportService {
       ),
     );
     final Uint8List bytes = await document.save();
-    if (stillCurrent != null && !stillCurrent()) {
-      throw const LedgerSyncException(
-        'Account changed before this PDF could be shared.',
-      );
-    }
     await Printing.sharePdf(
       bytes: bytes,
       filename:
@@ -12464,24 +11919,18 @@ class _ExportService {
 
   static Future<void> share(
     Map<String, dynamic> state,
-    _ExportChoice choice, {
-    bool Function()? stillCurrent,
-  }) async {
+    _ExportChoice choice,
+  ) async {
     final _ExportDataset dataset = _buildDataset(state, choice.scope);
     switch (choice.format) {
       case _ExportFormat.pdf:
-        await sharePdf(
-          dataset.title,
-          dataset.headers,
-          dataset.rows,
-          stillCurrent: stillCurrent,
-        );
+        await sharePdf(dataset.title, dataset.headers, dataset.rows);
         return;
       case _ExportFormat.csv:
-        await _shareCsv(dataset, stillCurrent: stillCurrent);
+        await _shareCsv(dataset);
         return;
       case _ExportFormat.aiLedger:
-        await _shareAiLedger(dataset, stillCurrent: stillCurrent);
+        await _shareAiLedger(dataset);
         return;
     }
   }
@@ -12800,10 +12249,7 @@ class _ExportService {
     );
   }
 
-  static Future<void> _shareCsv(
-    _ExportDataset dataset, {
-    bool Function()? stillCurrent,
-  }) async {
+  static Future<void> _shareCsv(_ExportDataset dataset) async {
     final List<List<String>> rows = <List<String>>[
       dataset.headers,
       ...dataset.rows,
@@ -12813,11 +12259,6 @@ class _ExportService {
         .join('\r\n');
     final String filename =
         '${_safeFilename(dataset.title)}_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.csv';
-    if (stillCurrent != null && !stillCurrent()) {
-      throw const LedgerSyncException(
-        'Account changed before this CSV could be shared.',
-      );
-    }
     await SharePlus.instance.share(
       ShareParams(
         files: <XFile>[
@@ -12832,10 +12273,7 @@ class _ExportService {
     );
   }
 
-  static Future<void> _shareAiLedger(
-    _ExportDataset dataset, {
-    bool Function()? stillCurrent,
-  }) async {
+  static Future<void> _shareAiLedger(_ExportDataset dataset) async {
     final StringBuffer output = StringBuffer()
       ..writeln('AARISH DIARY PRO — AI MASTER LEDGER')
       ..writeln('SCOPE :: ${dataset.title}')
@@ -12869,11 +12307,6 @@ class _ExportService {
     }
     final String filename =
         '${_safeFilename(dataset.title)}_AI_Ledger_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.txt';
-    if (stillCurrent != null && !stillCurrent()) {
-      throw const LedgerSyncException(
-        'Account changed before this AI ledger could be shared.',
-      );
-    }
     await SharePlus.instance.share(
       ShareParams(
         files: <XFile>[
@@ -12894,22 +12327,8 @@ class _ExportService {
     return value.toStringAsFixed(2);
   }
 
-  static String _csvCell(String value) {
-    final String normalized = value
-        .replaceAll('\r\n', '\n')
-        .replaceAll('\r', '\n');
-    final String candidate = normalized.trimLeft();
-    final bool plainNumber = RegExp(r'^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$')
-        .hasMatch(candidate);
-    final bool formulaLike =
-        candidate.isNotEmpty && '=+-@'.contains(candidate[0]) && !plainNumber;
-    final bool controlPrefixed =
-        normalized.startsWith('\t') || normalized.startsWith('\n');
-    final String safe = formulaLike || controlPrefixed
-        ? "'$normalized"
-        : normalized;
-    return '"${safe.replaceAll('"', '""')}"';
-  }
+  static String _csvCell(String value) =>
+      '"${value.replaceAll('"', '""').replaceAll('\r\n', '\n').replaceAll('\r', '\n')}"';
 
   static String _safeFilename(String value) => value
       .replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '_')

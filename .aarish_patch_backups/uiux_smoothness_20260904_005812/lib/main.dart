@@ -442,46 +442,11 @@ class _AarishDiaryAppState extends State<AarishDiaryApp>
         ? Duration.zero
         : const Duration(milliseconds: 300),
     themeAnimationCurve: const Cubic(0.25, 1, 0.5, 1),
-    builder: (BuildContext context, Widget? child) {
-      final Widget content = _GlobalTapRippleLayer(
-        child: _AmbientBackground(child: child ?? const SizedBox.shrink()),
-      );
-      final String? userId = _userId;
-      if (userId == null || userId.isEmpty) return content;
-      return _AccountSessionScope(
-        sync: widget.sync,
-        userId: userId,
-        generation: widget.sync.sessionGeneration,
-        child: content,
-      );
-    },
+    builder: (BuildContext context, Widget? child) => _GlobalTapRippleLayer(
+      child: _AmbientBackground(child: child ?? const SizedBox.shrink()),
+    ),
     home: _RootStage(booting: _booting, userId: _userId, sync: widget.sync),
   );
-}
-
-class _AccountSessionScope extends InheritedWidget {
-  const _AccountSessionScope({
-    required this.sync,
-    required this.userId,
-    required this.generation,
-    required super.child,
-  });
-
-  final LedgerSyncService sync;
-  final String userId;
-  final int generation;
-
-  bool get isCurrent => sync.isSessionCurrent(userId, generation);
-  String get operationKey => '$userId:$generation';
-
-  static _AccountSessionScope? maybeOf(BuildContext context) =>
-      context.getInheritedWidgetOfExactType<_AccountSessionScope>();
-
-  @override
-  bool updateShouldNotify(covariant _AccountSessionScope oldWidget) =>
-      oldWidget.sync != sync ||
-      oldWidget.userId != userId ||
-      oldWidget.generation != generation;
 }
 
 class _RootStage extends StatelessWidget {
@@ -1195,11 +1160,6 @@ class _FastRouteLauncherState extends State<_FastRouteLauncher> {
     if (_routeOpen) return;
     _routeOpen = true;
 
-    // Capture tap identity before the tactile handoff delay. A filtered/live
-    // list can rebuild during those few milliseconds and update this State's
-    // widget; the tap must still open the destination that was actually hit.
-    final WidgetBuilder destinationBuilder = widget.destinationBuilder;
-
     void launchRoute() {
       _launchTimer = null;
       if (!mounted) return;
@@ -1213,7 +1173,7 @@ class _FastRouteLauncherState extends State<_FastRouteLauncher> {
 
       final NavigatorState navigator = Navigator.of(context);
       final PageRoute<Object?> route = _directRoute<Object?>(
-        destinationBuilder: destinationBuilder,
+        destinationBuilder: widget.destinationBuilder,
         reduceMotion: AppMotion.reduce(context),
       );
 
@@ -1457,7 +1417,7 @@ class _LoginScreenState extends State<_LoginScreen> {
                       ),
                       const SizedBox(height: 36),
                       _Pressable(
-                        onTap: _working ? null : _signIn,
+                        onTap: _signIn,
                         borderRadius: BorderRadius.circular(17),
                         child: Container(
                           height: 56,
@@ -1525,7 +1485,7 @@ class _LoginScreenState extends State<_LoginScreen> {
                         ),
                       ],
                       const SizedBox(height: 12),
-                      _BounceTextButton(
+                      _Pressable(
                         onTap: () => showAboutDialog(
                           context: context,
                           applicationName: 'Aarish Dairy Pro',
@@ -1537,13 +1497,19 @@ class _LoginScreenState extends State<_LoginScreen> {
                             ),
                           ],
                         ),
-                        semanticLabel: 'About features',
-                        child: Text(
-                          'About features',
-                          style: TextStyle(
-                            color: Colors.white.withAlpha(138),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 7,
+                          ),
+                          child: Text(
+                            'About features',
+                            style: TextStyle(
+                              color: Colors.white.withAlpha(138),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                         ),
                       ),
@@ -1733,7 +1699,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       List<Color>.unmodifiable(_moduleTabColors(widget.sync.currentProjection)),
     );
 
-    widget.sync.contentChanges.addListener(_handleTabColorSync);
+    widget.sync.addListener(_handleTabColorSync);
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -1743,9 +1709,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
     if (oldWidget.sync == widget.sync) return;
 
-    oldWidget.sync.contentChanges.removeListener(_handleTabColorSync);
+    oldWidget.sync.removeListener(_handleTabColorSync);
     _handleTabColorSync();
-    widget.sync.contentChanges.addListener(_handleTabColorSync);
+    widget.sync.addListener(_handleTabColorSync);
   }
 
   @override
@@ -1762,7 +1728,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    widget.sync.contentChanges.removeListener(_handleTabColorSync);
+    widget.sync.removeListener(_handleTabColorSync);
     _tabColors.dispose();
     _tabSelection.dispose();
     _settledPage.dispose();
@@ -2137,7 +2103,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           activePage: _settledPage,
           pageIndex: 5,
           builder: (BuildContext context) => DiaryScreen(sync: widget.sync),
-          listenToContentOnly: false,
         ),
       ),
       _KeepAlivePage(
@@ -2155,9 +2120,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           AnimatedBuilder(
             animation: widget.sync,
             builder: (BuildContext context, Widget? child) =>
-                widget.sync.isOffline
-                ? const _OfflineBanner()
-                : const SizedBox.shrink(),
+                widget.sync.isConnected
+                ? const SizedBox.shrink()
+                : const _OfflineBanner(),
           ),
           Expanded(
             child: RepaintBoundary(
@@ -2225,16 +2190,12 @@ class _ActiveSyncView extends StatefulWidget {
     required this.activePage,
     required this.pageIndex,
     required this.builder,
-    this.listenToContentOnly = true,
   });
 
   final LedgerSyncService sync;
   final ValueListenable<int> activePage;
   final int pageIndex;
   final WidgetBuilder builder;
-  final bool listenToContentOnly;
-
-  Listenable get changes => listenToContentOnly ? sync.contentChanges : sync;
 
   @override
   State<_ActiveSyncView> createState() => _ActiveSyncViewState();
@@ -2250,7 +2211,7 @@ class _ActiveSyncViewState extends State<_ActiveSyncView> {
     super.initState();
     _active = _resolveActive();
     widget.activePage.addListener(_handleActivePageChange);
-    if (_active) widget.changes.addListener(_handleSyncChange);
+    if (_active) widget.sync.addListener(_handleSyncChange);
   }
 
   @override
@@ -2258,28 +2219,27 @@ class _ActiveSyncViewState extends State<_ActiveSyncView> {
     super.didUpdateWidget(oldWidget);
     final bool routingIdentityChanged =
         oldWidget.sync != widget.sync ||
-        oldWidget.listenToContentOnly != widget.listenToContentOnly ||
         oldWidget.activePage != widget.activePage ||
         oldWidget.pageIndex != widget.pageIndex;
     if (!routingIdentityChanged) return;
 
-    if (_active) oldWidget.changes.removeListener(_handleSyncChange);
+    if (_active) oldWidget.sync.removeListener(_handleSyncChange);
     if (oldWidget.activePage != widget.activePage) {
       oldWidget.activePage.removeListener(_handleActivePageChange);
       widget.activePage.addListener(_handleActivePageChange);
     }
 
     _active = _resolveActive();
-    if (_active) widget.changes.addListener(_handleSyncChange);
+    if (_active) widget.sync.addListener(_handleSyncChange);
   }
 
   void _handleActivePageChange() {
     final bool nextActive = _resolveActive();
     if (nextActive == _active) return;
 
-    if (_active) widget.changes.removeListener(_handleSyncChange);
+    if (_active) widget.sync.removeListener(_handleSyncChange);
     _active = nextActive;
-    if (_active) widget.changes.addListener(_handleSyncChange);
+    if (_active) widget.sync.addListener(_handleSyncChange);
 
     // Pages are intentionally kept alive. Rebuild on both ownership edges so
     // hidden tickers/focus are disabled immediately, and the newly active page
@@ -2294,7 +2254,7 @@ class _ActiveSyncViewState extends State<_ActiveSyncView> {
   @override
   void dispose() {
     widget.activePage.removeListener(_handleActivePageChange);
-    if (_active) widget.changes.removeListener(_handleSyncChange);
+    if (_active) widget.sync.removeListener(_handleSyncChange);
     super.dispose();
   }
 
@@ -2984,7 +2944,7 @@ class _PressableState extends State<_Pressable>
 
   @override
   Widget build(BuildContext context) => Semantics(
-    button: true,
+    button: widget.onTap != null,
     enabled: widget.onTap != null,
     label: widget.semanticLabel,
     selected: widget.selected,
@@ -3534,7 +3494,7 @@ class _ScreenHeader extends StatelessWidget {
       ),
       child: ClipRect(
         child: BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
           child: DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -3625,7 +3585,7 @@ class _CircleAction extends StatelessWidget {
   });
 
   final IconData icon;
-  final VoidCallback? onTap;
+  final VoidCallback onTap;
   final Color color;
   final String? semanticLabel;
 
@@ -3696,7 +3656,7 @@ class _DeleteActionButton extends StatelessWidget {
     this.padding = EdgeInsets.zero,
   });
 
-  final VoidCallback? onTap;
+  final VoidCallback onTap;
   final String semanticLabel;
   final EdgeInsetsGeometry padding;
 
@@ -4158,7 +4118,7 @@ class _DateField extends StatelessWidget {
       helpText: 'SELECT DATE',
     );
     if (picked != null) {
-      controller.text = _isoDateFormat.format(picked);
+      controller.text = DateFormat('yyyy-MM-dd').format(picked);
     }
   }
 
@@ -4241,7 +4201,7 @@ class _PrimaryButton extends StatelessWidget {
   });
 
   final String label;
-  final VoidCallback? onTap;
+  final VoidCallback onTap;
   final IconData icon;
   final Color color;
   final Color foregroundColor;
@@ -4824,7 +4784,7 @@ class _MonthYearPicker extends StatelessWidget {
                   (int item) => DropdownMenuItem<int>(
                     value: item,
                     child: Text(
-                      _monthNameFormat.format(DateTime(2024, item)),
+                      DateFormat.MMMM().format(DateTime(2024, item)),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -5075,24 +5035,14 @@ Future<bool> _runMutation(
   Future<void> Function() mutation,
   String success,
 ) async {
-  final _AccountSessionScope? session = _AccountSessionScope.maybeOf(context);
-  if (session != null && !session.isCurrent) {
-    debugPrint('Ledger mutation rejected: stale authenticated UI session.');
-    return false;
-  }
   try {
     await mutation();
-    // The mutation may already be durable, but stale screens must never emit
-    // success feedback or continue follow-up UI work for a different account.
-    if (session != null && !session.isCurrent) return false;
     HapticFeedback.successNotification();
     if (context.mounted) _toast(context, success);
     return true;
   } catch (error, stackTrace) {
     debugPrint('Ledger mutation failed: $error\n$stackTrace');
-    if (context.mounted && (session == null || session.isCurrent)) {
-      _toast(context, '$error', error: true);
-    }
+    if (context.mounted) _toast(context, '$error', error: true);
     return false;
   }
 }
@@ -5111,13 +5061,7 @@ Future<void> _sharePdfSafely(
   List<List<String>> rows,
 ) async {
   try {
-    final _AccountSessionScope? session = _AccountSessionScope.maybeOf(context);
-    await _ExportService.sharePdf(
-      title,
-      headers,
-      rows,
-      stillCurrent: session == null ? null : () => session.isCurrent,
-    );
+    await _ExportService.sharePdf(title, headers, rows);
   } catch (error, stackTrace) {
     debugPrint('PDF share failed: $error\n$stackTrace');
     if (context.mounted) {
@@ -5141,36 +5085,28 @@ Future<void> _setDarkModeSafely(
   }
 }
 
-final DateFormat _isoDateFormat = DateFormat('yyyy-MM-dd');
-final DateFormat _displayDateFormat = DateFormat('dd MMM yyyy');
-final DateFormat _dayFormat = DateFormat('dd');
-final DateFormat _monthAbbrevFormat = DateFormat('MMM');
-final DateFormat _dayMonthFormat = DateFormat('dd MMM');
-final DateFormat _monthNameFormat = DateFormat.MMMM();
-final DateFormat _monthYearFormat = DateFormat('MMMM yyyy');
-final NumberFormat _inrIntegerFormat = NumberFormat('#,##,##0', 'en_IN');
-final NumberFormat _compactQuantityFormat = NumberFormat('0.##');
-
 String _newId(String prefix) =>
     '${prefix}_${DateTime.now().millisecondsSinceEpoch}_${_ids.v4().replaceAll('-', '').substring(0, 8)}';
 
-String _today() => _isoDateFormat.format(DateTime.now());
+String _today() => DateFormat('yyyy-MM-dd').format(DateTime.now());
 
 String _displayDate(dynamic value) {
   final DateTime? date = LedgerMath.date(value);
-  return date == null ? '${value ?? '—'}' : _displayDateFormat.format(date);
+  return date == null
+      ? '${value ?? '—'}'
+      : DateFormat('dd MMM yyyy').format(date);
 }
 
 String _displayDay(dynamic value) {
   final DateTime? date = LedgerMath.date(value);
-  return date == null ? '—' : _dayFormat.format(date);
+  return date == null ? '—' : DateFormat('dd').format(date);
 }
 
 // LAST_ENTRY_DAY_ONLY_V1
 
 String _money(dynamic value) {
   final double number = LedgerMath.number(value).abs();
-  return '₹${_inrIntegerFormat.format(number.round())}';
+  return '₹${NumberFormat('#,##,##0', 'en_IN').format(number.round())}';
 }
 
 String _signedMoney(dynamic value) {
@@ -5230,7 +5166,7 @@ class _AiHubButton extends StatelessWidget {
       borderRadius: radius,
       child: Container(
         width: 60,
-        height: UIConstants.minTapTarget,
+        height: 40,
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           gradient: const LinearGradient(
@@ -5299,60 +5235,48 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   LedgerSyncService get sync => widget.sync;
 
-  bool _loggingOut = false;
-
   Future<void> _logout(BuildContext context) async {
-    if (_loggingOut) return;
-    final _AccountSessionScope? session = _AccountSessionScope.maybeOf(context);
-    if (session == null || !session.isCurrent) return;
-    _loggingOut = true;
+    if (sync.pendingWrites > 0) {
+      final bool continueLogout = await _confirm(
+        context,
+        'Sync before logout',
+        '${sync.pendingWrites} change(s) are waiting for Firebase. The app will try to sync now; logout will be blocked if the connection is unavailable.',
+        dangerous: false,
+      );
+      if (!continueLogout || !context.mounted) return;
+    }
+    final bool safe = await sync.drainBeforeLogout();
+    if (!context.mounted) return;
+    if (!safe) {
+      _toast(
+        context,
+        'Logout blocked: pending changes are still offline. Connect once, then retry.',
+        error: true,
+      );
+      return;
+    }
     try {
-      if (sync.pendingWrites > 0) {
-        final bool continueLogout = await _confirm(
-          context,
-          'Sync before logout',
-          '${sync.pendingWrites} change(s) are waiting for Firebase. The app will try to sync now; logout will be blocked if the connection is unavailable.',
-          dangerous: false,
-        );
-        if (!continueLogout || !context.mounted || !session.isCurrent) return;
-      }
-      final bool safe = await sync.drainBeforeLogout();
-      if (!context.mounted || !session.isCurrent) return;
-      if (!safe) {
+      await FirebaseAuth.instance.signOut();
+    } on FirebaseAuthException catch (error) {
+      if (context.mounted) {
         _toast(
           context,
-          'Logout blocked: pending changes are still offline. Connect once, then retry.',
+          error.message ?? 'Firebase logout failed. Please try again.',
           error: true,
         );
-        return;
       }
-      try {
-        // Re-check immediately before the destructive auth transition.
-        if (!session.isCurrent) return;
-        await FirebaseAuth.instance.signOut();
-      } on FirebaseAuthException catch (error) {
-        if (context.mounted && session.isCurrent) {
-          _toast(
-            context,
-            error.message ?? 'Firebase logout failed. Please try again.',
-            error: true,
-          );
-        }
-        return;
-      } catch (error, stackTrace) {
-        debugPrint('Firebase logout failed: $error\n$stackTrace');
-        if (context.mounted && session.isCurrent) {
-          _toast(context, 'Logout failed. Please try again.', error: true);
-        }
-        return;
+      return;
+    } catch (error, stackTrace) {
+      debugPrint('Firebase logout failed: $error\n$stackTrace');
+      if (context.mounted) {
+        _toast(context, 'Logout failed. Please try again.', error: true);
       }
-      try {
-        if (!kIsWeb) await GoogleSignIn().signOut();
-      } catch (error, stackTrace) {
-        debugPrint('Google local sign-out cleanup failed: $error\n$stackTrace');
-      }
-    } finally {
-      _loggingOut = false;
+      return;
+    }
+    try {
+      if (!kIsWeb) await GoogleSignIn().signOut();
+    } catch (error, stackTrace) {
+      debugPrint('Google local sign-out cleanup failed: $error\n$stackTrace');
     }
   }
 
@@ -5376,20 +5300,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
               semanticLabel: 'Export reports',
               onTap: () => unawaited(_showExportCenter(context, sync)),
             ),
-            AnimatedBuilder(
-              animation: sync,
-              builder: (BuildContext context, Widget? child) => _CircleAction(
-                icon: sync.darkMode
-                    ? Icons.light_mode_rounded
-                    : Icons.dark_mode_rounded,
-                color: sync.darkMode ? themeAmber : themeIndigo,
-                semanticLabel: sync.darkMode
-                    ? 'Switch to light theme'
-                    : 'Switch to dark theme',
-                onTap: () => unawaited(
-                  _setDarkModeSafely(context, sync, !sync.darkMode),
-                ),
-              ),
+            _CircleAction(
+              icon: sync.darkMode
+                  ? Icons.light_mode_rounded
+                  : Icons.dark_mode_rounded,
+              color: sync.darkMode ? themeAmber : themeIndigo,
+              semanticLabel: sync.darkMode
+                  ? 'Switch to light theme'
+                  : 'Switch to dark theme',
+              onTap: () =>
+                  unawaited(_setDarkModeSafely(context, sync, !sync.darkMode)),
             ),
             _CircleAction(
               icon: Icons.logout_rounded,
@@ -5424,18 +5344,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               padding: UIConstants.screenPadding,
               children: <Widget>[
-                AnimatedBuilder(
-                  animation: sync,
-                  builder: (BuildContext context, Widget? child) {
-                    if (sync.pendingWrites <= 0 && !sync.syncing) {
-                      return const SizedBox.shrink();
-                    }
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _SyncPill(sync: sync),
-                    );
-                  },
-                ),
+                if (sync.pendingWrites > 0 || sync.syncing)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _SyncPill(sync: sync),
+                  ),
                 GridView.count(
                   crossAxisCount: 2,
                   crossAxisSpacing: 16,
@@ -5738,39 +5651,14 @@ class _PartyLedgerScreenState extends State<PartyLedgerScreen> {
   String _query = '';
 
   @override
-  void initState() {
-    super.initState();
-    widget.sync.contentChanges.addListener(_handleContentChange);
-  }
-
-  @override
-  void didUpdateWidget(covariant PartyLedgerScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.sync == widget.sync) return;
-    oldWidget.sync.contentChanges.removeListener(_handleContentChange);
-    widget.sync.contentChanges.addListener(_handleContentChange);
-  }
-
-  void _handleContentChange() {
-    if (mounted) setState(() {});
-  }
-
-  @override
-  void dispose() {
-    widget.sync.contentChanges.removeListener(_handleContentChange);
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final String query = _query.trim().toLowerCase();
     final List<PartyBalance> balances = widget
         .sync
         .currentProjection
         .partyBalances
         .where(
           (PartyBalance item) =>
-              query.isEmpty || item.name.toLowerCase().contains(query),
+              item.name.toLowerCase().contains(_query.toLowerCase()),
         )
         .toList();
     return Scaffold(
@@ -5806,35 +5694,38 @@ class _PartyLedgerScreenState extends State<PartyLedgerScreen> {
             ],
           ),
           Expanded(
-            child: _LazyLedgerList(
-              storageKey: 'party-ledger-scroll',
-              header: <Widget>[
+            child: ListView(
+              physics: const BouncingScrollPhysics(),
+              padding: UIConstants.screenPadding,
+              children: <Widget>[
                 _SearchBox(
                   hint: 'Search party name…',
                   onChanged: (String value) => setState(() => _query = value),
                 ),
                 const SizedBox(height: 16),
+                if (balances.isEmpty)
+                  const _EmptyState(
+                    Icons.contact_page_rounded,
+                    'No party balances found',
+                  )
+                else
+                  ...balances.map((PartyBalance item) {
+                    final Color color = _tone(item.net);
+                    final String label = item.net >= 0
+                        ? 'TO RECEIVE'
+                        : 'TO PAY';
+                    return _ListCard(
+                      title: item.name,
+                      subtitle: label,
+                      icon: Icons.person_rounded,
+                      color: color,
+                      avatarText: item.name.trim().isEmpty
+                          ? 'P'
+                          : item.name.trim()[0].toUpperCase(),
+                      trailing: _signedMoney(item.net),
+                    );
+                  }),
               ],
-              itemCount: balances.length,
-              emptyState: const _EmptyState(
-                Icons.contact_page_rounded,
-                'No party balances found',
-              ),
-              itemBuilder: (BuildContext context, int index) {
-                final PartyBalance item = balances[index];
-                final Color color = _tone(item.net);
-                final String label = item.net >= 0 ? 'TO RECEIVE' : 'TO PAY';
-                return _ListCard(
-                  title: item.name,
-                  subtitle: label,
-                  icon: Icons.person_rounded,
-                  color: color,
-                  avatarText: item.name.trim().isEmpty
-                      ? 'P'
-                      : item.name.trim()[0].toUpperCase(),
-                  trailing: _signedMoney(item.net),
-                );
-              },
             ),
           ),
         ],
@@ -6358,7 +6249,7 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: widget.sync.contentChanges,
+    animation: widget.sync,
     builder: (BuildContext context, Widget? child) {
       final Map<String, dynamic> database = _map(widget.sync.state['milkDB']);
       final Map<String, dynamic>? profile = database[widget.customerName] is Map
@@ -6537,7 +6428,7 @@ class _SoftShareButton extends StatelessWidget {
     final bool dark = Theme.of(context).brightness == Brightness.dark;
     final double viewportWidth = MediaQuery.sizeOf(context).width;
     final bool micro = compact && viewportWidth < 350;
-    final double height = compact ? UIConstants.compactButtonHeight : 52;
+    final double height = micro ? 46 : (compact ? 48 : 52);
     final double width = micro ? 96 : (compact ? 108 : 118);
     final double radius = compact ? 17 : 19;
 
@@ -6608,7 +6499,7 @@ class _MilkRecordsTable extends StatelessWidget {
   String _quantityCell(dynamic value) {
     final double number = LedgerMath.number(value);
     if (number == 0) return '-';
-    return _compactQuantityFormat.format(number);
+    return NumberFormat('0.##').format(number);
   }
 
   @override
@@ -6732,8 +6623,8 @@ class _MilkTableRow extends StatelessWidget {
     final DateTime? parsed = LedgerMath.strictDate('${row['date']}');
     final String day = parsed == null
         ? _displayDate(row['date'])
-        : _dayFormat.format(parsed);
-    final String month = parsed == null ? '' : _monthAbbrevFormat.format(parsed);
+        : DateFormat('dd').format(parsed);
+    final String month = parsed == null ? '' : DateFormat('MMM').format(parsed);
     final String total =
         '${flow == 'taken' ? '-' : '+'}${quantity.toStringAsFixed(2)}';
 
@@ -7084,7 +6975,7 @@ class _LedgerDateCell extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Text(
-              _dayFormat.format(parsed),
+              DateFormat('dd').format(parsed),
               style: TextStyle(
                 color: color,
                 fontSize: 15,
@@ -7094,7 +6985,7 @@ class _LedgerDateCell extends StatelessWidget {
             ),
             const SizedBox(height: 5),
             Text(
-              _monthAbbrevFormat.format(parsed),
+              DateFormat('MMM').format(parsed),
               style: TextStyle(
                 color: color,
                 fontSize: 12.5,
@@ -7112,7 +7003,7 @@ class _LedgerDateCell extends StatelessWidget {
         fit: BoxFit.scaleDown,
         alignment: Alignment.centerLeft,
         child: Text(
-          _dayMonthFormat.format(parsed),
+          DateFormat('dd MMM').format(parsed),
           maxLines: 1,
           style: TextStyle(
             color: color,
@@ -7526,7 +7417,7 @@ class _SalaryDetailScreenState extends State<SalaryDetailScreen> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: widget.sync.contentChanges,
+    animation: widget.sync,
     builder: (BuildContext context, Widget? child) {
       final Map<String, dynamic> database = _map(widget.sync.state['salaryDB']);
       if (database[widget.personName] is! Map) {
@@ -8044,7 +7935,7 @@ class _CreditDetailScreenState extends State<CreditDetailScreen> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: widget.sync.contentChanges,
+    animation: widget.sync,
     builder: (BuildContext context, Widget? child) {
       final List<Map<String, dynamic>> allRecords =
           _rows(widget.sync.state['udharDB'])
@@ -8221,7 +8112,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
         );
     await _sharePdfSafely(
       context,
-      'Monthly Expenses - ${_monthYearFormat.format(now)}',
+      'Monthly Expenses - ${DateFormat('MMMM yyyy').format(now)}',
       <String>['Date', 'Category', 'Amount'],
       records
           .map(
@@ -8514,7 +8405,7 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: widget.sync.contentChanges,
+    animation: widget.sync,
     builder: (BuildContext context, Widget? child) {
       final List<Map<String, dynamic>> allRecords =
           _rows(widget.sync.state['expenseDB'])
@@ -8834,11 +8725,14 @@ class _DiaryEditorSheetState extends State<_DiaryEditorSheet> {
         ),
       ],
       const SizedBox(height: 20),
-      _PrimaryButton(
-        label: _saving ? 'Saving…' : 'Save Page',
-        color: diaryOrange,
-        icon: _saving ? Icons.sync_rounded : Icons.save_rounded,
-        onTap: _saving ? null : () => unawaited(_submit()),
+      IgnorePointer(
+        ignoring: _saving,
+        child: _PrimaryButton(
+          label: _saving ? 'Saving…' : 'Save Page',
+          color: diaryOrange,
+          icon: _saving ? Icons.sync_rounded : Icons.save_rounded,
+          onTap: () => unawaited(_submit()),
+        ),
       ),
     ],
   );
@@ -9318,7 +9212,7 @@ class _DiaryDetailScreenState extends State<DiaryDetailScreen> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: widget.sync.contentChanges,
+    animation: widget.sync,
     builder: (BuildContext context, Widget? child) {
       Map<String, dynamic>? entry;
       for (final Map<String, dynamic> row in _rows(
@@ -9352,24 +9246,18 @@ class _DiaryDetailScreenState extends State<DiaryDetailScreen> {
                   icon: Icons.edit_rounded,
                   color: diaryOrange,
                   semanticLabel: 'Edit diary page',
-                  onTap: _actionInFlight
-                      ? null
-                      : () => unawaited(_edit(context, current)),
+                  onTap: () => unawaited(_edit(context, current)),
                 ),
                 _CircleAction(
                   icon: Icons.share_rounded,
                   color: appleBlue,
                   semanticLabel: 'Share diary page',
-                  onTap: _actionInFlight
-                      ? null
-                      : () => unawaited(_share(context, current)),
+                  onTap: () => unawaited(_share(context, current)),
                 ),
                 _DeleteActionButton(
                   padding: const EdgeInsets.only(left: 6),
                   semanticLabel: 'Delete diary page',
-                  onTap: _actionInFlight
-                      ? null
-                      : () => unawaited(_delete(context)),
+                  onTap: () => unawaited(_delete(context)),
                 ),
               ],
             ),
@@ -9793,7 +9681,7 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: sync.contentChanges,
+    animation: sync,
     builder: (BuildContext context, Widget? child) {
       final Map<String, dynamic> database = _map(sync.state['projectDB']);
       if (database[projectName] is! Map) {
@@ -10392,14 +10280,6 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
 
   String get _currentOwnerUid => widget.sync.user?.uid.trim() ?? '';
 
-  void _requireCurrentAiSession(_AccountSessionScope session) {
-    if (!mounted || !session.isCurrent) {
-      throw const AiBridgeException(
-        'Account changed while this AI operation was running.',
-      );
-    }
-  }
-
   String _scopedSetting(String base, String ownerUid) => '$base.$ownerUid';
 
   String _apiKeyStorageKey(String ownerUid) =>
@@ -10625,11 +10505,7 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
       return;
     }
     final String ownerUid = _currentOwnerUid;
-    final _AccountSessionScope? session = _AccountSessionScope.maybeOf(context);
-    if (ownerUid.isEmpty ||
-        session == null ||
-        session.userId != ownerUid ||
-        !session.isCurrent) {
+    if (ownerUid.isEmpty) {
       _toast(
         context,
         'Please sign in before sharing ledger data.',
@@ -10646,22 +10522,19 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
       dangerous: false,
     );
     if (!allowed || !mounted) return;
-    if (!session.isCurrent || _currentOwnerUid != ownerUid) {
+    if (_currentOwnerUid != ownerUid) {
       _toast(context, 'Account changed. Open the AI setup again.', error: true);
       return;
     }
     setState(() => _sharingExternal = true);
     try {
       await widget.sync.ensureAllDiaryMonthsLoaded();
-      if (!mounted || !session.isCurrent) return;
       final AiBridgePackage package = AiBridgeProtocol.buildPackage(
         state: widget.sync.state,
         generatedAt: DateTime.now(),
         snapshotId: _newId('aip'),
       );
-      if (!session.isCurrent) return;
       await Clipboard.setData(ClipboardData(text: package.prompt));
-      if (!mounted || !session.isCurrent) return;
       await widget.sync.writeSetting(
         _scopedSetting(_externalSnapshotIdSetting, ownerUid),
         package.snapshotId,
@@ -10670,9 +10543,8 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
         _scopedSetting(_externalFingerprintSetting, ownerUid),
         package.stateFingerprint,
       );
-      if (!mounted || !session.isCurrent) return;
       if (sheetContext.mounted) Navigator.pop(sheetContext);
-      if (!mounted || !session.isCurrent) return;
+      if (!mounted) return;
       setState(() {
         _externalSnapshotId = package.snapshotId;
         _externalStateFingerprint = package.stateFingerprint;
@@ -10688,7 +10560,6 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
       });
       _scrollToEnd();
       await Future<void>.delayed(const Duration(milliseconds: 120));
-      if (!mounted || !session.isCurrent) return;
       await SharePlus.instance.share(
         ShareParams(
           files: <XFile>[
@@ -10702,14 +10573,14 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
           subject: 'Aarish Dairy Pro — Connect with Other AI',
         ),
       );
-      if (mounted && session.isCurrent) {
+      if (mounted) {
         _toast(
           context,
           'TXT ready and AI prompt copied. Choose an AI or Save to Files.',
         );
       }
     } catch (_) {
-      if (mounted && session.isCurrent) {
+      if (mounted) {
         _toast(
           context,
           'Could not open the share menu. Tap Connect with Other AI to retry.',
@@ -10847,11 +10718,6 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
       );
       return;
     }
-    final _AccountSessionScope? session = _AccountSessionScope.maybeOf(context);
-    if (session == null || !session.isCurrent) {
-      _toast(context, 'Account session changed. Reopen AI and try again.', error: true);
-      return;
-    }
     final bool localEnvelope = AiBridgeProtocol.looksLikeEnvelope(prompt);
     if (!localEnvelope && prompt.length > 12000) {
       _toast(
@@ -10874,44 +10740,23 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
     _scrollToEnd();
     try {
       await widget.sync.ensureAllDiaryMonthsLoaded();
-      _requireCurrentAiSession(session);
-      Map<String, dynamic>? directRequestState;
-      String? directRequestFingerprint;
       final _AiOutcome outcome;
       if (localEnvelope) {
         outcome = _GeminiLedgerClient.parseEnvelope(prompt);
       } else {
-        directRequestState = LedgerCodec.normalizeState(widget.sync.state);
-        directRequestFingerprint = AiBridgeProtocol.stateFingerprint(
-          directRequestState,
-        );
         if (_apiKey.isEmpty) {
           await _configure();
-          _requireCurrentAiSession(session);
           if (_apiKey.isEmpty) {
             throw const LedgerSyncException('Gemini API key is required.');
-          }
-          if (AiBridgeProtocol.stateFingerprint(widget.sync.state) !=
-              directRequestFingerprint) {
-            throw const AiBridgeException(
-              'Ledger changed while AI setup was open. Send the request again.',
-            );
           }
         }
         outcome = await _GeminiLedgerClient.generate(
           apiKey: _apiKey,
           model: _model,
           userText: prompt,
-          state: directRequestState,
+          state: widget.sync.state,
           history: _geminiHistory,
         );
-        _requireCurrentAiSession(session);
-        if (AiBridgeProtocol.stateFingerprint(widget.sync.state) !=
-            directRequestFingerprint) {
-          throw const AiBridgeException(
-            'Ledger changed while Gemini was responding. Send the request again.',
-          );
-        }
       }
       if (localEnvelope && outcome.actions.isNotEmpty) {
         if (_completedFingerprints.contains(outcome.envelopeFingerprint)) {
@@ -10921,14 +10766,10 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
         }
         final bool verified = await _verifyExternalEnvelope(outcome);
         if (!verified) return;
-        _requireCurrentAiSession(session);
       }
-      final Map<String, dynamic> validationState = localEnvelope
-          ? widget.sync.state
-          : directRequestState!;
       final AiActionPlan plan = AiBridgeProtocol.validateAndNormalize(
         rawActions: outcome.actions,
-        state: validationState,
+        state: widget.sync.state,
         newId: _newId,
       );
       if (!localEnvelope) {
@@ -10945,15 +10786,7 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
       if (plan.actions.isNotEmpty) {
         if (!mounted) return;
         final bool apply = await _confirmAiActions(plan);
-        _requireCurrentAiSession(session);
         if (apply && mounted) {
-          if (!localEnvelope &&
-              AiBridgeProtocol.stateFingerprint(widget.sync.state) !=
-                  directRequestFingerprint) {
-            throw const AiBridgeException(
-              'Ledger changed during AI review. Send the request again.',
-            );
-          }
           await _startAiBatch(
             plan,
             fingerprint: localEnvelope
@@ -10966,7 +10799,7 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
           reviewCancelled = true;
         }
       }
-      if (mounted && session.isCurrent) {
+      if (mounted) {
         final String? statusMessage = plan.actions.isEmpty
             ? outcome.reply.isEmpty
                   ? 'Koi change zaroori nahi tha.'
@@ -10982,7 +10815,7 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
         }
       }
     } catch (error) {
-      if (mounted && session.isCurrent) {
+      if (mounted) {
         setState(() {
           _messages.add(
             _AiMessage(
@@ -10994,7 +10827,7 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
       }
     } finally {
       if (mounted) setState(() => _busy = false);
-      if (mounted && session.isCurrent) _scrollToEnd();
+      _scrollToEnd();
     }
   }
 
@@ -11632,12 +11465,10 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
                   onTap: _busy || _batchJob != null
                       ? null
                       : () => unawaited(_send()),
-                  borderRadius: BorderRadius.circular(
-                    UIConstants.minTapTarget / 2,
-                  ),
+                  borderRadius: BorderRadius.circular(23),
                   child: Container(
-                    width: UIConstants.minTapTarget,
-                    height: UIConstants.minTapTarget,
+                    width: 46,
+                    height: 46,
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
                         colors: <Color>[Color(0xFF4285F4), Color(0xFF9B72CB)],
@@ -12008,47 +11839,29 @@ class _ExportButtonContent extends StatelessWidget {
   );
 }
 
-final Set<String> _activeExportSessions = <String>{};
-
 Future<void> _showExportCenter(
   BuildContext context,
   LedgerSyncService sync,
 ) async {
-  final _AccountSessionScope? session = _AccountSessionScope.maybeOf(context);
-  if (session == null || !session.isCurrent) return;
   final _ExportChoice? choice = await _openSheet<_ExportChoice>(
     context,
     const _ExportCenterSheet(),
   );
-  if (choice == null || !context.mounted || !session.isCurrent) return;
-  final String operationKey = session.operationKey;
-  if (!_activeExportSessions.add(operationKey)) {
-    _toast(context, 'An export is already in progress.');
-    return;
-  }
+  if (choice == null || !context.mounted) return;
   try {
     if (choice.scope == _ExportScope.all ||
         choice.scope == _ExportScope.diary) {
       await sync.ensureAllDiaryMonthsLoaded();
-      if (!context.mounted || !session.isCurrent) return;
     }
-    final Map<String, dynamic> exportState = LedgerCodec.normalizeState(sync.state);
-    if (!session.isCurrent) return;
-    await _ExportService.share(
-      exportState,
-      choice,
-      stillCurrent: () => session.isCurrent,
-    );
+    await _ExportService.share(sync.state, choice);
   } catch (error, stackTrace) {
     debugPrint('Export failed: $error\n$stackTrace');
-    if (context.mounted && session.isCurrent) {
+    if (context.mounted) {
       final String message = error is LedgerSyncException
           ? error.message
           : 'Export failed. Please try again.';
       _toast(context, message, error: true);
     }
-  } finally {
-    _activeExportSessions.remove(operationKey);
   }
 }
 
@@ -12357,9 +12170,8 @@ class _ExportService {
   static Future<void> sharePdf(
     String title,
     List<String> headers,
-    List<List<String>> rows, {
-    bool Function()? stillCurrent,
-  }) async {
+    List<List<String>> rows,
+  ) async {
     final pw.Font pdfRegular = pw.Font.ttf(
       await rootBundle.load('assets/fonts/NotoSansDevanagari-Regular.ttf'),
     );
@@ -12450,11 +12262,6 @@ class _ExportService {
       ),
     );
     final Uint8List bytes = await document.save();
-    if (stillCurrent != null && !stillCurrent()) {
-      throw const LedgerSyncException(
-        'Account changed before this PDF could be shared.',
-      );
-    }
     await Printing.sharePdf(
       bytes: bytes,
       filename:
@@ -12464,24 +12271,18 @@ class _ExportService {
 
   static Future<void> share(
     Map<String, dynamic> state,
-    _ExportChoice choice, {
-    bool Function()? stillCurrent,
-  }) async {
+    _ExportChoice choice,
+  ) async {
     final _ExportDataset dataset = _buildDataset(state, choice.scope);
     switch (choice.format) {
       case _ExportFormat.pdf:
-        await sharePdf(
-          dataset.title,
-          dataset.headers,
-          dataset.rows,
-          stillCurrent: stillCurrent,
-        );
+        await sharePdf(dataset.title, dataset.headers, dataset.rows);
         return;
       case _ExportFormat.csv:
-        await _shareCsv(dataset, stillCurrent: stillCurrent);
+        await _shareCsv(dataset);
         return;
       case _ExportFormat.aiLedger:
-        await _shareAiLedger(dataset, stillCurrent: stillCurrent);
+        await _shareAiLedger(dataset);
         return;
     }
   }
@@ -12800,10 +12601,7 @@ class _ExportService {
     );
   }
 
-  static Future<void> _shareCsv(
-    _ExportDataset dataset, {
-    bool Function()? stillCurrent,
-  }) async {
+  static Future<void> _shareCsv(_ExportDataset dataset) async {
     final List<List<String>> rows = <List<String>>[
       dataset.headers,
       ...dataset.rows,
@@ -12813,11 +12611,6 @@ class _ExportService {
         .join('\r\n');
     final String filename =
         '${_safeFilename(dataset.title)}_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.csv';
-    if (stillCurrent != null && !stillCurrent()) {
-      throw const LedgerSyncException(
-        'Account changed before this CSV could be shared.',
-      );
-    }
     await SharePlus.instance.share(
       ShareParams(
         files: <XFile>[
@@ -12832,10 +12625,7 @@ class _ExportService {
     );
   }
 
-  static Future<void> _shareAiLedger(
-    _ExportDataset dataset, {
-    bool Function()? stillCurrent,
-  }) async {
+  static Future<void> _shareAiLedger(_ExportDataset dataset) async {
     final StringBuffer output = StringBuffer()
       ..writeln('AARISH DIARY PRO — AI MASTER LEDGER')
       ..writeln('SCOPE :: ${dataset.title}')
@@ -12869,11 +12659,6 @@ class _ExportService {
     }
     final String filename =
         '${_safeFilename(dataset.title)}_AI_Ledger_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.txt';
-    if (stillCurrent != null && !stillCurrent()) {
-      throw const LedgerSyncException(
-        'Account changed before this AI ledger could be shared.',
-      );
-    }
     await SharePlus.instance.share(
       ShareParams(
         files: <XFile>[
