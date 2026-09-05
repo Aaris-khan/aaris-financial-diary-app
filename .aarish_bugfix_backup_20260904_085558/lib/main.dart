@@ -373,7 +373,6 @@ class _AarishDiaryAppState extends State<AarishDiaryApp>
   late bool _booting;
   late bool _darkMode;
   late bool _reduceMotion;
-  late int _sessionGeneration;
   String? _userId;
 
   @override
@@ -397,26 +396,20 @@ class _AarishDiaryAppState extends State<AarishDiaryApp>
     _booting = widget.sync.booting;
     _darkMode = widget.sync.darkMode;
     _reduceMotion = WidgetsBinding.instance.disableAnimations;
-    _sessionGeneration = widget.sync.sessionGeneration;
     _userId = widget.sync.activeUserId;
   }
 
   void _handleSyncChange() {
     final bool booting = widget.sync.booting;
     final bool darkMode = widget.sync.darkMode;
-    final int sessionGeneration = widget.sync.sessionGeneration;
     final String? userId = widget.sync.activeUserId;
-    if (booting == _booting &&
-        darkMode == _darkMode &&
-        sessionGeneration == _sessionGeneration &&
-        userId == _userId) {
+    if (booting == _booting && darkMode == _darkMode && userId == _userId) {
       return;
     }
     if (!mounted) return;
     setState(() {
       _booting = booting;
       _darkMode = darkMode;
-      _sessionGeneration = sessionGeneration;
       _userId = userId;
     });
   }
@@ -438,9 +431,7 @@ class _AarishDiaryAppState extends State<AarishDiaryApp>
   @override
   Widget build(BuildContext context) => MaterialApp(
     key: ValueKey<String>(
-      _userId == null
-          ? 'auth:signed-out:$_sessionGeneration'
-          : 'auth:${_userId!}:$_sessionGeneration',
+      _userId == null ? 'auth:signed-out' : 'auth:${_userId!}',
     ),
     debugShowCheckedModeBanner: false,
     title: 'Aarish Dairy Pro',
@@ -460,7 +451,7 @@ class _AarishDiaryAppState extends State<AarishDiaryApp>
       return _AccountSessionScope(
         sync: widget.sync,
         userId: userId,
-        generation: _sessionGeneration,
+        generation: widget.sync.sessionGeneration,
         child: content,
       );
     },
@@ -1538,7 +1529,7 @@ class _LoginScreenState extends State<_LoginScreen> {
                         onTap: () => showAboutDialog(
                           context: context,
                           applicationName: 'Aarish Dairy Pro',
-                          applicationVersion: '1.0.15+16',
+                          applicationVersion: '1.0.0',
                           applicationIcon: const _AppMark(size: 48),
                           children: const <Widget>[
                             Text(
@@ -1678,17 +1669,17 @@ class _LedgerPagePhysics extends PageScrollPhysics {
     // page; carrying that opposing velocity into the spring produces a visible
     // recoil before settling. Zeroing only the wrong-way component preserves
     // true fling energy while removing the artificial snap-back.
-    // If the selected target is already reached, residual release velocity
-    // must not launch a spring away from equilibrium and then rebound.
-    if (distanceToTarget.abs() <= tolerance.distance) {
-      return null;
-    }
-
     final double settleVelocity =
-        clampedVelocity == 0 ||
+        distanceToTarget == 0 ||
+            clampedVelocity == 0 ||
             distanceToTarget.sign == clampedVelocity.sign
         ? clampedVelocity
         : 0;
+
+    if (distanceToTarget.abs() <= tolerance.distance &&
+        velocity.abs() <= tolerance.velocity) {
+      return null;
+    }
 
     return ScrollSpringSimulation(
       spring,
@@ -2728,7 +2719,6 @@ class _Pressable extends StatefulWidget {
     this.semanticLabel,
     this.selected,
     this.haptics = true,
-    this.keyboardFocusable = true,
   });
 
   final Widget child;
@@ -2738,7 +2728,6 @@ class _Pressable extends StatefulWidget {
   final String? semanticLabel;
   final bool? selected;
   final bool haptics;
-  final bool keyboardFocusable;
 
   @override
   State<_Pressable> createState() => _PressableState();
@@ -3026,8 +3015,7 @@ class _PressableState extends State<_Pressable>
   }
 
   @override
-  Widget build(BuildContext context) {
-    final Widget content = Semantics(
+  Widget build(BuildContext context) => Semantics(
     button: true,
     enabled: widget.onTap != null,
     label: widget.semanticLabel,
@@ -3157,28 +3145,6 @@ class _PressableState extends State<_Pressable>
       ),
     ),
   );
-
-    if (!widget.keyboardFocusable || widget.onTap == null) {
-      return content;
-    }
-
-    return FocusableActionDetector(
-      enabled: true,
-      shortcuts: const <ShortcutActivator, Intent>{
-        SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-        SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-      },
-      actions: <Type, Action<Intent>>{
-        ActivateIntent: CallbackAction<ActivateIntent>(
-          onInvoke: (ActivateIntent intent) {
-            widget.onTap?.call();
-            return null;
-          },
-        ),
-      },
-      child: content,
-    );
-  }
 }
 
 class _GlassCard extends StatelessWidget {
@@ -3907,7 +3873,6 @@ class _BounceTextButton extends StatelessWidget {
     child: _Pressable(
       onTap: onTap,
       semanticLabel: semanticLabel,
-      keyboardFocusable: false,
       borderRadius: BorderRadius.circular(12),
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: UIConstants.minTapTarget),
@@ -3962,7 +3927,6 @@ class _BounceIconButton extends StatelessWidget {
       child: _Pressable(
         onTap: onTap,
         semanticLabel: tooltip,
-        keyboardFocusable: false,
         borderRadius: BorderRadius.circular(24),
         child: SizedBox.square(
           dimension: UIConstants.minTapTarget,
@@ -6414,20 +6378,13 @@ class _MilkScreenState extends State<MilkScreen> {
     }
     await _runMutation(
       context,
-      () => widget.sync.writeBatch(
-        <String, dynamic>{
-          'milkDB/$customerName': <String, dynamic>{
-            'rate': customerRate,
-            'type': type,
-            'records': <dynamic>[],
-            'canonicalNameV18': customerName.toLowerCase(),
-            'createdAtV18': DateTime.now().toIso8601String(),
-          },
-        },
-        reason: 'milk-profile-create',
-        requiredMissingProfileRoot: 'milkDB',
-        requiredMissingProfileName: customerName,
-      ),
+      () => widget.sync.write('milkDB/$customerName', <String, dynamic>{
+        'rate': customerRate,
+        'type': type,
+        'records': <dynamic>[],
+        'canonicalNameV18': customerName.toLowerCase(),
+        'createdAtV18': DateTime.now().toIso8601String(),
+      }, reason: 'milk-profile-create'),
       'Customer added safely!',
     );
   }
@@ -6771,12 +6728,7 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
       );
       return;
     }
-    final String profileFingerprint = LedgerCodec.profileFingerprint(
-      'milkDB',
-      widget.customerName,
-      currentProfile,
-    );
-    final String id = LedgerMath.milkDailyRecordId(entryDate, flow);
+    final String id = _newId('mlk');
     final bool saved = await _runMutation(
       context,
       () => widget.sync.writeExistingProfileRecord(
@@ -6792,7 +6744,6 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
           'type': flow,
         },
         reason: 'milk-entry-save',
-        requiredProfileFingerprint: profileFingerprint,
       ),
       flow == 'taken' ? 'Taken milk saved!' : 'Given milk saved!',
     );
@@ -6807,9 +6758,6 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
   }
 
   Future<void> _deleteEntry(String id) async {
-    final String deleteFingerprint = LedgerCodec.stateFingerprint(
-      widget.sync.state,
-    );
     if (!await _confirm(
       context,
       'Delete entry?',
@@ -6820,19 +6768,16 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
     if (!mounted) return;
     await _runMutation(
       context,
-      () => widget.sync.writeBatch(
-        <String, dynamic>{'milkDB/${widget.customerName}/records/$id': null},
+      () => widget.sync.write(
+        'milkDB/${widget.customerName}/records/$id',
+        null,
         reason: 'milk-entry-delete',
-        requiredStateFingerprint: deleteFingerprint,
       ),
       'Entry deleted!',
     );
   }
 
   Future<void> _deleteProfile() async {
-    final String deleteFingerprint = LedgerCodec.stateFingerprint(
-      widget.sync.state,
-    );
     if (!await _confirm(
       context,
       'Delete ${widget.customerName}?',
@@ -6842,10 +6787,10 @@ class _MilkDetailScreenState extends State<MilkDetailScreen> {
     }
     if (!mounted) return;
     try {
-      await widget.sync.writeBatch(
-        <String, dynamic>{'milkDB/${widget.customerName}': null},
+      await widget.sync.write(
+        'milkDB/${widget.customerName}',
+        null,
         reason: 'milk-profile-delete',
-        requiredStateFingerprint: deleteFingerprint,
       );
       if (mounted) _popIfCurrent(context);
     } catch (error) {
@@ -7767,7 +7712,7 @@ class _SalaryScreenState extends State<SalaryScreen> {
                     label: 'Receives',
                     icon: Icons.add_rounded,
                     color: salaryGreen,
-                    semanticLabel: 'Create salary profile where I receive salary',
+                    semanticLabel: 'Create employee who receives salary',
                     onTap: () {
                       _popIfCurrent(sheetContext, 'lene_wala');
                     },
@@ -7815,18 +7760,11 @@ class _SalaryScreenState extends State<SalaryScreen> {
     }
     await _runMutation(
       context,
-      () => widget.sync.writeBatch(
-        <String, dynamic>{
-          'salaryDB/$personName': <String, dynamic>{
-            'company': companyName,
-            'type': type,
-            'records': <dynamic>[],
-          },
-        },
-        reason: 'salary-profile-create',
-        requiredMissingProfileRoot: 'salaryDB',
-        requiredMissingProfileName: personName,
-      ),
+      () => widget.sync.write('salaryDB/$personName', <String, dynamic>{
+        'company': companyName,
+        'type': type,
+        'records': <dynamic>[],
+      }, reason: 'salary-profile-create'),
       type == 'lene_wala'
           ? 'Receiving salary profile added!'
           : 'Paying salary profile added!',
@@ -7982,12 +7920,7 @@ class _SalaryDetailScreenState extends State<SalaryDetailScreen> {
       _toast(context, 'Salary for this date is already added.', error: true);
       return;
     }
-    final String profileFingerprint = LedgerCodec.profileFingerprint(
-      'salaryDB',
-      widget.personName,
-      currentProfile,
-    );
-    final String id = LedgerMath.salaryDailyRecordId(entryDate);
+    final String id = _newId('sal');
     final bool saved = await _runMutation(
       context,
       () => widget.sync.writeExistingProfileRecord(
@@ -7996,7 +7929,6 @@ class _SalaryDetailScreenState extends State<SalaryDetailScreen> {
         id,
         <String, dynamic>{'id': id, 'date': entryDate, 'amount': entryAmount},
         reason: 'salary-entry-save',
-        requiredProfileFingerprint: profileFingerprint,
       ),
       'Salary saved safely!',
     );
@@ -8011,9 +7943,6 @@ class _SalaryDetailScreenState extends State<SalaryDetailScreen> {
   }
 
   Future<void> _deleteEntry(String id) async {
-    final String deleteFingerprint = LedgerCodec.stateFingerprint(
-      widget.sync.state,
-    );
     if (!await _confirm(
       context,
       'Delete salary?',
@@ -8024,19 +7953,16 @@ class _SalaryDetailScreenState extends State<SalaryDetailScreen> {
     if (!mounted) return;
     await _runMutation(
       context,
-      () => widget.sync.writeBatch(
-        <String, dynamic>{'salaryDB/${widget.personName}/records/$id': null},
+      () => widget.sync.write(
+        'salaryDB/${widget.personName}/records/$id',
+        null,
         reason: 'salary-entry-delete',
-        requiredStateFingerprint: deleteFingerprint,
       ),
       'Salary entry deleted!',
     );
   }
 
   Future<void> _deleteProfile() async {
-    final String deleteFingerprint = LedgerCodec.stateFingerprint(
-      widget.sync.state,
-    );
     if (!await _confirm(
       context,
       'Delete ${widget.personName}?',
@@ -8046,10 +7972,10 @@ class _SalaryDetailScreenState extends State<SalaryDetailScreen> {
     }
     if (!mounted) return;
     try {
-      await widget.sync.writeBatch(
-        <String, dynamic>{'salaryDB/${widget.personName}': null},
+      await widget.sync.write(
+        'salaryDB/${widget.personName}',
+        null,
         reason: 'salary-profile-delete',
-        requiredStateFingerprint: deleteFingerprint,
       );
       if (mounted) _popIfCurrent(context);
     } catch (error) {
@@ -8530,9 +8456,6 @@ class _CreditDetailScreenState extends State<CreditDetailScreen> {
   }
 
   Future<void> _deleteEntry(String id) async {
-    final String deleteFingerprint = LedgerCodec.stateFingerprint(
-      widget.sync.state,
-    );
     if (!await _confirm(
       context,
       'Delete credit entry?',
@@ -8543,20 +8466,13 @@ class _CreditDetailScreenState extends State<CreditDetailScreen> {
     if (!mounted) return;
     await _runMutation(
       context,
-      () => widget.sync.writeBatch(
-        <String, dynamic>{'udharDB/$id': null},
-        reason: 'credit-entry-delete',
-        requiredStateFingerprint: deleteFingerprint,
-      ),
+      () =>
+          widget.sync.write('udharDB/$id', null, reason: 'credit-entry-delete'),
       'Entry deleted!',
     );
   }
 
   Future<void> _deleteProfile() async {
-    final Map<String, dynamic> deleteSource =
-        LedgerCodec.normalizeState(widget.sync.state);
-    final String deleteFingerprint = LedgerCodec.stateFingerprint(deleteSource);
-
     if (!await _confirm(
       context,
       'Delete ${widget.personName}?',
@@ -8565,28 +8481,22 @@ class _CreditDetailScreenState extends State<CreditDetailScreen> {
       return;
     }
     if (!mounted) return;
-
     final List<Map<String, dynamic>> records =
-        _rows(deleteSource['udharDB'])
+        _rows(widget.sync.state['udharDB'])
             .where(
               (Map<String, dynamic> row) =>
                   LedgerMath.cleanName(row['name']).toLowerCase() ==
                   widget.personName.toLowerCase(),
             )
             .toList();
-
     final Map<String, dynamic> deletes = <String, dynamic>{
       for (final Map<String, dynamic> row in records)
         'udharDB/${row['id']}': null,
     };
-
     try {
-      await widget.sync.writeBatch(
-        deletes,
-        reason: 'credit-profile-delete',
-        requiredStateFingerprint: deleteFingerprint,
-      );
-
+      if (deletes.isNotEmpty) {
+        await widget.sync.writeBatch(deletes, reason: 'credit-profile-delete');
+      }
       if (mounted) _popIfCurrent(context);
     } catch (error) {
       if (mounted) _toast(context, '$error', error: true);
@@ -8779,7 +8689,9 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
           .map(
             (Map<String, dynamic> row) => <String>[
               _displayDate(row['date']),
-              LedgerMath.expenseCategory(row['category']),
+              _cleanKey(row['category']).isEmpty
+                  ? 'Other'
+                  : _cleanKey(row['category']),
               _plainMoney(-LedgerMath.number(row['amount']).abs()),
             ],
           )
@@ -8838,7 +8750,9 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       return;
     }
     final String entryDate = date.text.trim();
-    final String entryCategory = LedgerMath.expenseCategory(category.text);
+    final String entryCategory = _cleanKey(category.text).isEmpty
+        ? 'Other'
+        : _cleanKey(category.text);
     final double entryAmount = double.tryParse(amount.text) ?? 0;
     date.dispose();
     category.dispose();
@@ -9011,9 +8925,6 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
   }
 
   Future<void> _deleteEntry(String id) async {
-    final String deleteFingerprint = LedgerCodec.stateFingerprint(
-      widget.sync.state,
-    );
     if (!await _confirm(
       context,
       'Delete expense?',
@@ -9024,20 +8935,16 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
     if (!mounted) return;
     await _runMutation(
       context,
-      () => widget.sync.writeBatch(
-        <String, dynamic>{'expenseDB/$id': null},
+      () => widget.sync.write(
+        'expenseDB/$id',
+        null,
         reason: 'expense-entry-delete',
-        requiredStateFingerprint: deleteFingerprint,
       ),
       'Expense deleted!',
     );
   }
 
   Future<void> _deleteCategory() async {
-    final Map<String, dynamic> deleteSource =
-        LedgerCodec.normalizeState(widget.sync.state);
-    final String deleteFingerprint = LedgerCodec.stateFingerprint(deleteSource);
-
     if (!await _confirm(
       context,
       'Delete ${widget.category}?',
@@ -9046,28 +8953,25 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
       return;
     }
     if (!mounted) return;
-
     final List<Map<String, dynamic>> allRecords =
-        _rows(deleteSource['expenseDB'])
+        _rows(widget.sync.state['expenseDB'])
             .where(
               (Map<String, dynamic> row) =>
-                  LedgerMath.expenseCategory(row['category']).toLowerCase() ==
-                  LedgerMath.expenseCategory(widget.category).toLowerCase(),
+                  _cleanKey(row['category']).toLowerCase() ==
+                  widget.category.toLowerCase(),
             )
             .toList();
-
     final Map<String, dynamic> deletes = <String, dynamic>{
       for (final Map<String, dynamic> row in allRecords)
         'expenseDB/${row['id']}': null,
     };
-
     try {
-      await widget.sync.writeBatch(
-        deletes,
-        reason: 'expense-category-delete',
-        requiredStateFingerprint: deleteFingerprint,
-      );
-
+      if (deletes.isNotEmpty) {
+        await widget.sync.writeBatch(
+          deletes,
+          reason: 'expense-category-delete',
+        );
+      }
       if (mounted) _popIfCurrent(context);
     } catch (error) {
       if (mounted) _toast(context, '$error', error: true);
@@ -9082,8 +8986,8 @@ class _ExpenseDetailScreenState extends State<ExpenseDetailScreen> {
           _rows(widget.sync.state['expenseDB'])
               .where(
                 (Map<String, dynamic> row) =>
-                    LedgerMath.expenseCategory(row['category']).toLowerCase() ==
-                    LedgerMath.expenseCategory(widget.category).toLowerCase(),
+                    _cleanKey(row['category']).toLowerCase() ==
+                    widget.category.toLowerCase(),
               )
               .toList();
       final List<DateTime> availablePeriods = LedgerMath.recordPeriods(
@@ -9409,9 +9313,6 @@ class _DiaryScreenState extends State<DiaryScreen> {
   String _query = '';
   int _month = DateTime.now().month;
   int _year = DateTime.now().year;
-  late int _settledMonth;
-  late int _settledYear;
-  int _periodRequestGeneration = 0;
   Object? _cachedDiarySource;
   Object? _visibleDiarySource;
   bool _hasDiaryCache = false;
@@ -9426,13 +9327,6 @@ class _DiaryScreenState extends State<DiaryScreen> {
   List<Map<String, dynamic>> _visibleEntries = const <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _visibleNeedsDateEntries =
       const <Map<String, dynamic>>[];
-
-  @override
-  void initState() {
-    super.initState();
-    _settledMonth = _month;
-    _settledYear = _year;
-  }
 
   void _refreshDiaryCache() {
     final Object? source = widget.sync.state['diaryDB'];
@@ -9511,56 +9405,34 @@ class _DiaryScreenState extends State<DiaryScreen> {
     return _visibleEntries;
   }
 
-  void _selectKnownDiaryPeriod(int month, int year) {
-    _periodRequestGeneration++;
-    _settledMonth = month;
-    _settledYear = year;
-    setState(() {
-      _month = month;
-      _year = year;
-    });
-  }
-
   Future<void> _createEntry() async {
     final DateTime? savedDate = await _saveDiarySheet(context, widget.sync);
     if (!mounted || savedDate == null) return;
-    _selectKnownDiaryPeriod(savedDate.month, savedDate.year);
+    setState(() {
+      _month = savedDate.month;
+      _year = savedDate.year;
+    });
   }
 
   Future<void> _selectPeriod(int month, int year) async {
-    final int requestGeneration = ++_periodRequestGeneration;
-    final int rollbackMonth = _settledMonth;
-    final int rollbackYear = _settledYear;
-
+    final int previousMonth = _month;
+    final int previousYear = _year;
     setState(() {
       _month = month;
       _year = year;
     });
-
     try {
       await widget.sync.ensureDiaryMonthLoaded(year, month);
-
-      if (!mounted ||
-          requestGeneration != _periodRequestGeneration) {
-        return;
-      }
-
-      _settledMonth = month;
-      _settledYear = year;
     } catch (error) {
-      if (!mounted ||
-          requestGeneration != _periodRequestGeneration) {
-        return;
-      }
-
+      if (!mounted) return;
+      // Do not let an older failed request undo a newer user selection.
       if (_month == month && _year == year) {
         setState(() {
-          _month = rollbackMonth;
-          _year = rollbackYear;
+          _month = previousMonth;
+          _year = previousYear;
         });
-
-        _toast(context, '$error', error: true);
       }
+      _toast(context, '$error', error: true);
     }
   }
 
@@ -9580,7 +9452,10 @@ class _DiaryScreenState extends State<DiaryScreen> {
           entryId: '${entry['id']}',
           onDateChanged: (DateTime date) {
             if (!mounted) return;
-            _selectKnownDiaryPeriod(date.month, date.year);
+            setState(() {
+              _month = date.month;
+              _year = date.year;
+            });
           },
         ),
         sourceBuilder: (VoidCallback openRoute) => _Pressable(
@@ -10085,26 +9960,16 @@ class _BusinessScreenState extends State<BusinessScreen> {
     }
     await _runMutation(
       context,
-      () => widget.sync.writeBatch(
-        <String, dynamic>{
-          'projectDB/$project': <String, dynamic>{
-            'records': <dynamic>[],
-            'created': DateTime.now().millisecondsSinceEpoch,
-            'safeKeyCore': true,
-          },
-        },
-        reason: 'business-project-create',
-        requiredMissingProfileRoot: 'projectDB',
-        requiredMissingProfileName: project,
-      ),
+      () => widget.sync.write('projectDB/$project', <String, dynamic>{
+        'records': <dynamic>[],
+        'created': DateTime.now().millisecondsSinceEpoch,
+        'safeKeyCore': true,
+      }, reason: 'business-project-create'),
       'Business account created!',
     );
   }
 
   Future<void> _deleteProject(String name) async {
-    final String deleteFingerprint = LedgerCodec.stateFingerprint(
-      widget.sync.state,
-    );
     if (!await _confirm(
       context,
       'Delete $name?',
@@ -10115,10 +9980,10 @@ class _BusinessScreenState extends State<BusinessScreen> {
     if (!mounted) return;
     await _runMutation(
       context,
-      () => widget.sync.writeBatch(
-        <String, dynamic>{'projectDB/$name': null},
+      () => widget.sync.write(
+        'projectDB/$name',
+        null,
         reason: 'business-project-delete',
-        requiredStateFingerprint: deleteFingerprint,
       ),
       'Business account deleted!',
     );
@@ -10339,7 +10204,6 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen> {
   }
 
   Future<void> _deleteEntry(BuildContext context, String id) async {
-    final String deleteFingerprint = LedgerCodec.stateFingerprint(sync.state);
     if (!await _confirm(
       context,
       'Delete record?',
@@ -10350,17 +10214,16 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen> {
     if (!context.mounted) return;
     await _runMutation(
       context,
-      () => sync.writeBatch(
-        <String, dynamic>{'projectDB/$projectName/records/$id': null},
+      () => sync.write(
+        'projectDB/$projectName/records/$id',
+        null,
         reason: 'business-entry-delete',
-        requiredStateFingerprint: deleteFingerprint,
       ),
       'Record deleted!',
     );
   }
 
   Future<void> _deleteProject(BuildContext context) async {
-    final String deleteFingerprint = LedgerCodec.stateFingerprint(sync.state);
     if (!await _confirm(
       context,
       'Delete $projectName?',
@@ -10370,10 +10233,10 @@ class _BusinessDetailScreenState extends State<BusinessDetailScreen> {
     }
     if (!context.mounted) return;
     try {
-      await sync.writeBatch(
-        <String, dynamic>{'projectDB/$projectName': null},
+      await sync.write(
+        'projectDB/$projectName',
+        null,
         reason: 'business-project-delete',
-        requiredStateFingerprint: deleteFingerprint,
       );
       if (context.mounted) _popIfCurrent(context);
     } catch (error) {
@@ -10880,11 +10743,7 @@ class _AiBatchProgressCard extends StatelessWidget {
                   ),
                 ),
               ),
-              if (job.paused &&
-                  !job.hasStateConflict &&
-                  !job.lastError.startsWith(
-                    'Cancellation could not be persisted.',
-                  ))
+              if (job.paused && !job.hasStateConflict)
                 _BounceTextButton(
                   onTap: onRetry,
                   semanticLabel: 'Retry AI batch',
@@ -10965,8 +10824,6 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
     ),
   ];
   final List<_AiMessage> _geminiHistory = <_AiMessage>[];
-  late final Future<void> _settingsReady;
-  bool _settingsLoadFailed = false;
   String _apiKey = '';
   String _model = _defaultGeminiModel;
   String _externalSnapshotId = '';
@@ -10979,7 +10836,6 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
   bool _busy = false;
   bool _sharingExternal = false;
   bool _batchWriting = false;
-  bool _batchCancelPending = false;
   bool _appActive = true;
 
   String get _currentOwnerUid => widget.sync.activeUserId?.trim() ?? '';
@@ -11026,30 +10882,7 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _settingsReady = _loadSettingsSafely();
-  }
-
-  Future<void> _loadSettingsSafely() async {
-    try {
-      await _loadSettings();
-    } catch (error, stackTrace) {
-      _settingsLoadFailed = true;
-      debugPrint('AI settings initialization failed: $error\n$stackTrace');
-    }
-  }
-
-  Future<bool> _ensureSettingsReady() async {
-    await _settingsReady;
-    if (!mounted) return false;
-    if (_settingsLoadFailed) {
-      _toast(
-        context,
-        'AI settings could not be loaded. Reopen AI and retry.',
-        error: true,
-      );
-      return false;
-    }
-    return true;
+    unawaited(_loadSettings());
   }
 
   Future<void> _loadSettings() async {
@@ -11144,7 +10977,6 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _configure() async {
-    if (!await _ensureSettingsReady()) return;
     final String ownerUid = _currentOwnerUid;
     if (ownerUid.isEmpty) {
       _toast(context, 'Please sign in before configuring AI.', error: true);
@@ -11379,29 +11211,17 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
     final String ownerUid = _externalOwnerUid.isNotEmpty
         ? _externalOwnerUid
         : _currentOwnerUid;
-    try {
-      if (ownerUid.isNotEmpty) {
-        await widget.sync.writeSetting(
-          _scopedSetting(_externalSnapshotIdSetting, ownerUid),
-          null,
-        );
-        await widget.sync.writeSetting(
-          _scopedSetting(_externalFingerprintSetting, ownerUid),
-          null,
-        );
-      }
-    } catch (error, stackTrace) {
-      debugPrint('External AI snapshot cleanup failed: $error\n$stackTrace');
-      if (mounted && (ownerUid.isEmpty || _currentOwnerUid == ownerUid)) {
-        _toast(
-          context,
-          'AI snapshot could not be cleared. Please retry.',
-          error: true,
-        );
-      }
-      return;
+    if (ownerUid.isNotEmpty) {
+      await widget.sync.writeSetting(
+        _scopedSetting(_externalSnapshotIdSetting, ownerUid),
+        null,
+      );
+      await widget.sync.writeSetting(
+        _scopedSetting(_externalFingerprintSetting, ownerUid),
+        null,
+      );
     }
-    if (mounted && (ownerUid.isEmpty || _currentOwnerUid == ownerUid)) {
+    if (mounted) {
       setState(() {
         _externalSnapshotId = '';
         _externalStateFingerprint = '';
@@ -11488,8 +11308,6 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
   Future<void> _send() async {
     final String prompt = _input.text.trim();
     if (prompt.isEmpty || _busy) return;
-    if (!await _ensureSettingsReady()) return;
-    if (_busy) return;
     if (_batchJob != null) {
       _toast(
         context,
@@ -11571,7 +11389,7 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
       if (localEnvelope && outcome.actions.isNotEmpty) {
         if (_completedFingerprints.contains(outcome.envelopeFingerprint)) {
           throw const AiBridgeException(
-            'This exact AI response has already been completed or cancelled.',
+            'This exact AI response has already been completed.',
           );
         }
         final bool verified = await _verifyExternalEnvelope(outcome);
@@ -11586,6 +11404,16 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
         state: validationState,
         newId: _newId,
       );
+      if (!localEnvelope) {
+        _rememberGeminiTurn(
+          prompt,
+          outcome.reply.isEmpty
+              ? plan.actions.isEmpty
+                    ? 'No ledger change was needed.'
+                    : 'I proposed ${plan.actions.length} ledger change(s).'
+              : outcome.reply,
+        );
+      }
       bool reviewCancelled = false;
       if (plan.actions.isNotEmpty) {
         if (!mounted) return;
@@ -11611,25 +11439,6 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
           reviewCancelled = true;
         }
       }
-      // AI_HISTORY_REVIEW_TRUTH_V1
-      // Conversation memory must describe what the user actually approved.
-      // A rejected proposal must never leak into the next Gemini turn.
-      if (!localEnvelope) {
-        final String historyReply = plan.actions.isEmpty
-            ? (outcome.reply.isEmpty
-                  ? 'No ledger change was needed.'
-                  : outcome.reply)
-            : reviewCancelled
-            ? 'Review cancelled. None of the proposed ledger changes were '
-                  'approved or applied. Do not carry any action from this turn '
-                  'forward unless the user asks again.'
-            : 'User approved the reviewed ledger changes. Do not carry any '
-                  'proposed action from this turn forward; CURRENT STATE JSON '
-                  'is authoritative for what is stored.';
-
-        _rememberGeminiTurn(prompt, historyReply);
-      }
-
       if (mounted && session.isCurrent) {
         final String? statusMessage = plan.actions.isEmpty
             ? outcome.reply.isEmpty
@@ -11738,13 +11547,7 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
     _batchTimer?.cancel();
     _countdownTimer?.cancel();
     final AiBatchJob? job = _batchJob;
-    if (job == null ||
-        job.paused ||
-        _batchCancelPending ||
-        !_appActive ||
-        job.isComplete) {
-      return;
-    }
+    if (job == null || job.paused || !_appActive || job.isComplete) return;
     final int remainingMillis =
         job.nextRunAtMillis - DateTime.now().millisecondsSinceEpoch;
     _batchTimer = Timer(
@@ -11758,119 +11561,12 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _finishCommittedAiChunk({
-    required AiBatchJob current,
-    required int end,
-    required int ownerGeneration,
-    required String committedStateFingerprint,
-  }) async {
-    if (!_isOwnerSessionCurrent(current.ownerUid, ownerGeneration)) return;
-    final int remaining = current.actions.length - end;
-    if (remaining == 0) {
-      final List<String> completedFingerprints = <String>[
-        ..._completedFingerprints.where(
-          (String value) => value != current.fingerprint,
-        ),
-        current.fingerprint,
-      ];
-
-      if (completedFingerprints.length > 50) {
-        completedFingerprints.removeRange(
-          0,
-          completedFingerprints.length - 50,
-        );
-      }
-
-      await widget.sync.writeSetting(
-        _scopedSetting(_completedFingerprintSetting, current.ownerUid),
-        jsonEncode(completedFingerprints),
-      );
-      if (!_isOwnerSessionCurrent(current.ownerUid, ownerGeneration)) return;
-
-      _completedFingerprints = completedFingerprints;
-
-      await _persistBatchJob(null, ownerUid: current.ownerUid);
-      if (!_isOwnerSessionCurrent(current.ownerUid, ownerGeneration)) return;
-
-      _batchJob = null;
-      if (mounted) {
-        setState(() {
-          _messages.add(
-            _AiMessage(
-              '${current.actions.length} बदलाव सुरक्षित रूप से लागू हो गए।',
-              false,
-            ),
-          );
-        });
-        HapticFeedback.successNotification();
-        _toast(
-          context,
-          '${current.actions.length} बदलाव सुरक्षित रूप से सेव हो गए।',
-        );
-        _scrollToEnd();
-      }
-      return;
-    }
-
-    final int committedCount = end - current.nextIndex;
-    final AiBatchJob waiting = current.copyWith(
-      nextIndex: end,
-      expectedStateFingerprint: committedStateFingerprint,
-      nextRunAtMillis: DateTime.now()
-          .add(AiBridgeProtocol.chunkCooldown)
-          .millisecondsSinceEpoch,
-      paused: false,
-      clearError: true,
-      clearInFlight: true,
-    );
-    await _persistBatchJob(waiting);
-    if (!_isOwnerSessionCurrent(current.ownerUid, ownerGeneration)) return;
-    _batchJob = waiting;
-    if (mounted) {
-      setState(() {});
-      _toast(
-        context,
-        '$committedCount records saved. $remaining remaining — next 25 in 1 minute.',
-      );
-    }
-    _armBatchTimers();
-  }
-
-  Future<void> _pauseAiBatchSafely({
-    required AiBatchJob current,
-    required int ownerGeneration,
-    required String errorMessage,
-    required String toastMessage,
-  }) async {
-    if (!_isOwnerSessionCurrent(current.ownerUid, ownerGeneration)) return;
-    final AiBatchJob paused = current.copyWith(
-      paused: true,
-      lastError: errorMessage,
-    );
-    try {
-      await _persistBatchJob(paused);
-    } catch (persistError, stackTrace) {
-      debugPrint(
-        'AI batch pause persistence failed: $persistError\n$stackTrace',
-      );
-    }
-    if (!_isOwnerSessionCurrent(current.ownerUid, ownerGeneration)) return;
-    _batchTimer?.cancel();
-    _countdownTimer?.cancel();
-    _batchJob = paused;
-    if (mounted) {
-      setState(() {});
-      _toast(context, toastMessage, error: true);
-    }
-  }
-
   Future<void> _executeNextBatch() async {
     final AiBatchJob? current = _batchJob;
     if (current == null ||
         current.paused ||
         current.isComplete ||
         _batchWriting ||
-        _batchCancelPending ||
         !_appActive) {
       return;
     }
@@ -11893,61 +11589,27 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
       _armBatchTimers();
       return;
     }
-
     final String currentStateFingerprint = AiBridgeProtocol.stateFingerprint(
       widget.sync.state,
     );
-
-    // AI_BATCH_CRASH_RECOVERY_V2
-    // A persisted in-flight post-state is proof of exactly one case: the
-    // chunk's durable ledger commit completed, but progress persistence did
-    // not. Advance bookkeeping without writing the same chunk again.
-    if (current.hasInFlightCheckpoint &&
-        currentStateFingerprint == current.inFlightPostStateFingerprint) {
-      _batchTimer?.cancel();
-      _countdownTimer?.cancel();
-      if (mounted) setState(() => _batchWriting = true);
-      try {
-        await _finishCommittedAiChunk(
-          current: current,
-          end: current.inFlightEndIndex,
-          ownerGeneration: ownerGeneration,
-          committedStateFingerprint: current.inFlightPostStateFingerprint,
+    if (currentStateFingerprint != current.expectedStateFingerprint) {
+      final AiBatchJob paused = current.copyWith(
+        paused: true,
+        lastError: 'Ledger changed after approval. Cancel and review again.',
+      );
+      await _persistBatchJob(paused);
+      if (!_isOwnerSessionCurrent(current.ownerUid, ownerGeneration)) return;
+      _batchJob = paused;
+      if (mounted) {
+        setState(() {});
+        _toast(
+          context,
+          'AI batch paused because ledger data changed. Review again safely.',
+          error: true,
         );
-      } catch (error) {
-        if (!_isOwnerSessionCurrent(current.ownerUid, ownerGeneration)) return;
-        if (_completedFingerprints.contains(current.fingerprint)) {
-          debugPrint(
-            'AI batch completion cleanup deferred after durable completion: $error',
-          );
-          _batchJob = null;
-          if (mounted) setState(() {});
-          return;
-        }
-        await _pauseAiBatchSafely(
-          current: current,
-          ownerGeneration: ownerGeneration,
-          errorMessage: error.toString().replaceFirst('Exception: ', ''),
-          toastMessage:
-              'AI batch recovery paused. Retry after local storage is available.',
-        );
-      } finally {
-        if (mounted) setState(() => _batchWriting = false);
       }
       return;
     }
-
-    if (currentStateFingerprint != current.expectedStateFingerprint) {
-      await _pauseAiBatchSafely(
-        current: current,
-        ownerGeneration: ownerGeneration,
-        errorMessage: 'Ledger changed after approval. Cancel and review again.',
-        toastMessage:
-            'AI batch paused because ledger data changed. Review again safely.',
-      );
-      return;
-    }
-
     _batchTimer?.cancel();
     _countdownTimer?.cancel();
     if (mounted) setState(() => _batchWriting = true);
@@ -11963,40 +11625,77 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
       for (final Map<String, dynamic> action in chunk)
         '${action['path']}': action['data'],
     };
-
-    AiBatchJob activeJob = current;
     try {
-      final String postStateFingerprint = AiBridgeProtocol.stateFingerprint(
-        widget.sync.previewBatchState(writes),
-      );
-      final AiBatchJob checkpointed = current.copyWith(
-        inFlightEndIndex: end,
-        inFlightPostStateFingerprint: postStateFingerprint,
-        clearError: true,
-      );
-
-      // Persist intent first. If the process dies before writeBatch, the
-      // original expected fingerprint still matches and this chunk runs once.
-      // If it dies after writeBatch, the post-state checkpoint proves the
-      // commit and restart advances without a duplicate write.
-      await _persistBatchJob(checkpointed);
+      await widget.sync.writeBatch(writes, reason: 'ai-reviewed-batch');
       if (!_isOwnerSessionCurrent(current.ownerUid, ownerGeneration)) return;
-      _batchJob = checkpointed;
-      activeJob = checkpointed;
+      final int remaining = current.actions.length - end;
+      if (remaining == 0) {
+        final List<String> completedFingerprints = <String>[
+          ..._completedFingerprints.where(
+            (String value) => value != current.fingerprint,
+          ),
+          current.fingerprint,
+        ];
 
-      await widget.sync.writeBatch(
-        writes,
-        reason: 'ai-reviewed-batch',
-        requiredStateFingerprint: current.expectedStateFingerprint,
-      );
-      if (!_isOwnerSessionCurrent(current.ownerUid, ownerGeneration)) return;
+        if (completedFingerprints.length > 50) {
+          completedFingerprints.removeRange(
+            0,
+            completedFingerprints.length - 50,
+          );
+        }
 
-      await _finishCommittedAiChunk(
-        current: checkpointed,
-        end: end,
-        ownerGeneration: ownerGeneration,
-        committedStateFingerprint: postStateFingerprint,
-      );
+        await widget.sync.writeSetting(
+          _scopedSetting(_completedFingerprintSetting, current.ownerUid),
+          jsonEncode(completedFingerprints),
+        );
+        if (!_isOwnerSessionCurrent(current.ownerUid, ownerGeneration)) return;
+
+        _completedFingerprints = completedFingerprints;
+
+        await _persistBatchJob(null, ownerUid: current.ownerUid);
+        if (!_isOwnerSessionCurrent(current.ownerUid, ownerGeneration)) return;
+
+        _batchJob = null;
+        if (mounted) {
+          setState(() {
+            _messages.add(
+              _AiMessage(
+                '${current.actions.length} बदलाव सुरक्षित रूप से लागू हो गए।',
+                false,
+              ),
+            );
+          });
+          HapticFeedback.successNotification();
+          _toast(
+            context,
+            '${current.actions.length} बदलाव सुरक्षित रूप से सेव हो गए।',
+          );
+          _scrollToEnd();
+        }
+      } else {
+        final AiBatchJob waiting = current.copyWith(
+          nextIndex: end,
+          expectedStateFingerprint: AiBridgeProtocol.stateFingerprint(
+            widget.sync.state,
+          ),
+          nextRunAtMillis: DateTime.now()
+              .add(AiBridgeProtocol.chunkCooldown)
+              .millisecondsSinceEpoch,
+          paused: false,
+          clearError: true,
+        );
+        await _persistBatchJob(waiting);
+        if (!_isOwnerSessionCurrent(current.ownerUid, ownerGeneration)) return;
+        _batchJob = waiting;
+        if (mounted) {
+          setState(() {});
+          _toast(
+            context,
+            '${chunk.length} records saved. $remaining remaining — next 25 in 1 minute.',
+          );
+        }
+        _armBatchTimers();
+      }
     } catch (error) {
       if (!_isOwnerSessionCurrent(current.ownerUid, ownerGeneration)) return;
       if (_completedFingerprints.contains(current.fingerprint)) {
@@ -12007,13 +11706,24 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
         if (mounted) setState(() {});
         return;
       }
-      await _pauseAiBatchSafely(
-        current: activeJob,
-        ownerGeneration: ownerGeneration,
-        errorMessage: error.toString().replaceFirst('Exception: ', ''),
-        toastMessage:
-            'AI batch paused safely. Retry or cancel the remaining actions.',
+
+      final AiBatchJob paused = current.copyWith(
+        paused: true,
+        lastError: error.toString().replaceFirst('Exception: ', ''),
       );
+
+      await _persistBatchJob(paused);
+      if (!_isOwnerSessionCurrent(current.ownerUid, ownerGeneration)) return;
+      _batchJob = paused;
+
+      if (mounted) {
+        setState(() {});
+        _toast(
+          context,
+          'AI batch paused safely. Retry or cancel the remaining actions.',
+          error: true,
+        );
+      }
     } finally {
       if (mounted) setState(() => _batchWriting = false);
     }
@@ -12036,163 +11746,37 @@ class _AiHubScreenState extends State<AiHubScreen> with WidgetsBindingObserver {
       nextRunAtMillis: DateTime.now().millisecondsSinceEpoch,
       clearError: true,
     );
-    try {
-      await _persistBatchJob(retrying);
-      if (!_isOwnerSessionCurrent(job.ownerUid, ownerGeneration)) return;
-      setState(() => _batchJob = retrying);
-      await _executeNextBatch();
-    } catch (error, stackTrace) {
-      debugPrint('AI batch retry failed: $error\n$stackTrace');
-      if (_isOwnerSessionCurrent(job.ownerUid, ownerGeneration)) {
-        _toast(
-          context,
-          'AI batch retry could not start. Please retry.',
-          error: true,
-        );
-      }
-    }
+    await _persistBatchJob(retrying);
+    if (!_isOwnerSessionCurrent(job.ownerUid, ownerGeneration)) return;
+    setState(() => _batchJob = retrying);
+    await _executeNextBatch();
   }
 
   Future<void> _cancelRemainingBatch() async {
     final AiBatchJob? job = _batchJob;
     if (job == null || _batchWriting) return;
-
     final int ownerGeneration = widget.sync.sessionGeneration;
     if (!_isOwnerSessionCurrent(job.ownerUid, ownerGeneration)) return;
-
-    // Enter a real cancellation critical section BEFORE the first await.
-    // This blocks both the existing timer and lifecycle-resume re-arming.
-    _batchCancelPending = true;
-    _batchTimer?.cancel();
-    _countdownTimer?.cancel();
-
     final bool cancel = await _confirm(
       context,
       'Cancel remaining changes?',
       '${job.completed} change(s) are already saved. The remaining '
           '${job.remaining} change(s) will not run.',
     );
-
     if (!cancel || !_isOwnerSessionCurrent(job.ownerUid, ownerGeneration)) {
-      _batchCancelPending = false;
-
-      if (_isOwnerSessionCurrent(job.ownerUid, ownerGeneration) &&
-          _batchJob?.id == job.id &&
-          !_batchWriting) {
-        _armBatchTimers();
-      }
       return;
     }
-
-    final AiBatchJob? latest = _batchJob;
-    if (latest == null || latest.id != job.id || _batchWriting) {
-      _batchCancelPending = false;
-      return;
-    }
-
-    // Cancellation is terminal for this reviewed response.
-    //
-    // Persist the fingerprint BEFORE removing the job. Without this fence,
-    // a partially-applied external response could be pasted again and NEW
-    // actions already committed in earlier chunks would receive fresh IDs.
-    final List<String> terminalFingerprints = <String>[
-      ..._completedFingerprints.where(
-        (String value) => value != latest.fingerprint,
-      ),
-      latest.fingerprint,
-    ];
-
-    if (terminalFingerprints.length > 50) {
-      terminalFingerprints.removeRange(
-        0,
-        terminalFingerprints.length - 50,
-      );
-    }
-
-    try {
-      await widget.sync.writeSetting(
-        _scopedSetting(
-          _completedFingerprintSetting,
-          latest.ownerUid,
-        ),
-        jsonEncode(terminalFingerprints),
-      );
-    } catch (error, stackTrace) {
-      debugPrint(
-        'AI batch cancellation fingerprint persistence failed: '
-        '$error\n$stackTrace',
-      );
-
-      if (_isOwnerSessionCurrent(latest.ownerUid, ownerGeneration)) {
-        final AiBatchJob paused = latest.copyWith(
-          paused: true,
-          lastError:
-              'Cancellation could not be persisted. Retry cancellation.',
-        );
-
-        _batchJob = paused;
-
-        try {
-          await _persistBatchJob(paused);
-        } catch (pauseError, pauseStackTrace) {
-          debugPrint(
-            'AI batch cancellation pause persistence also failed: '
-            '$pauseError\n$pauseStackTrace',
-          );
-        }
-
-        if (mounted) {
-          setState(() {});
-        }
-
-        _toast(
-          context,
-          'Cancellation could not be saved. The AI batch is paused; '
-          'retry cancel before leaving AI.',
-          error: true,
-        );
-      }
-
-      // CRITICAL: never auto-resume mutations after the user confirmed cancel.
-      return;
-    }
-
-    if (!_isOwnerSessionCurrent(latest.ownerUid, ownerGeneration)) return;
-
-    _completedFingerprints = terminalFingerprints;
-
-    try {
-      await _persistBatchJob(
-        null,
-        ownerUid: latest.ownerUid,
-      );
-    } catch (error, stackTrace) {
-      // Safe to defer cleanup. The terminal fingerprint is already durable,
-      // and _loadSettings already discards a stored job whose fingerprint is
-      // present in completed/terminal history.
-      debugPrint(
-        'AI batch cancel cleanup deferred: $error\n$stackTrace',
-      );
-    }
-
-    if (!_isOwnerSessionCurrent(latest.ownerUid, ownerGeneration)) return;
-
-    _batchCancelPending = false;
-
+    _batchTimer?.cancel();
+    _countdownTimer?.cancel();
+    await _persistBatchJob(null, ownerUid: job.ownerUid);
+    if (!_isOwnerSessionCurrent(job.ownerUid, ownerGeneration)) return;
     setState(() {
       _batchJob = null;
       _messages.add(
-        _AiMessage(
-          '${latest.remaining} remaining AI change(s) cancelled.',
-          false,
-        ),
+        _AiMessage('${job.remaining} remaining AI change(s) cancelled.', false),
       );
     });
-
-    _toast(
-      context,
-      'Remaining AI changes cancelled.',
-    );
+    _toast(context, 'Remaining AI changes cancelled.');
     _scrollToEnd();
   }
 
@@ -12644,12 +12228,7 @@ class _GeminiLedgerClient {
             },
           }),
         )
-        .timeout(
-          const Duration(seconds: 45),
-          onTimeout: () => throw const LedgerSyncException(
-            'Gemini took too long to respond. Please retry the same request.',
-          ),
-        );
+        .timeout(const Duration(seconds: 45));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       String detail = 'HTTP ${response.statusCode}';
       try {
@@ -12727,76 +12306,27 @@ class _GeminiLedgerClient {
     );
   }
 
-  // AI_COMPACT_RECENCY_V1
-  // Direct Gemini gets a bounded snapshot for latency/token safety.
-  // When the collection is larger than that bound, include recent records
-  // rather than depending on incidental local/remote collection ordering.
   static Map<String, dynamic> _compactState(Map<String, dynamic> state) {
     final Map<String, dynamic> result = <String, dynamic>{};
-
     for (final String root in <String>['udharDB', 'expenseDB', 'diaryDB']) {
       final List<Map<String, dynamic>> rows = _rows(state[root]);
-      result[root] = _recentRows(rows, 400);
-
-      if (rows.length > 400) {
-        result['${root}Truncated'] = rows.length - 400;
-      }
+      result[root] = rows.take(400).toList();
+      if (rows.length > 400) result['${root}Truncated'] = rows.length - 400;
     }
-
     for (final String root in <String>['milkDB', 'salaryDB', 'projectDB']) {
       final Map<String, dynamic> profiles = <String, dynamic>{};
-
       for (final MapEntry<String, dynamic> entry in _map(state[root]).entries) {
         final Map<String, dynamic> profile = _map(entry.value);
         final List<Map<String, dynamic>> records = _rows(profile['records']);
-
         profiles[entry.key] = <String, dynamic>{
           ...profile,
-          'records': _recentRows(records, 120),
-          if (records.length > 120)
-            'truncatedRecords': records.length - 120,
+          'records': records.take(120).toList(),
+          if (records.length > 120) 'truncatedRecords': records.length - 120,
         };
       }
-
       result[root] = profiles;
     }
-
     return result;
-  }
-
-  static List<Map<String, dynamic>> _recentRows(
-    dynamic value,
-    int limit,
-  ) {
-    final List<Map<String, dynamic>> rows = _rows(value);
-    rows.sort(_compareRowsByRecency);
-    return rows.take(limit).toList(growable: false);
-  }
-
-  static int _compareRowsByRecency(
-    Map<String, dynamic> left,
-    Map<String, dynamic> right,
-  ) {
-    final DateTime? leftDate = LedgerMath.strictDate(left['date']);
-    final DateTime? rightDate = LedgerMath.strictDate(right['date']);
-
-    final int byDate =
-        (rightDate?.millisecondsSinceEpoch ?? -1).compareTo(
-      leftDate?.millisecondsSinceEpoch ?? -1,
-    );
-
-    if (byDate != 0) return byDate;
-
-    final int byUpdated =
-        LedgerMath.number(right['updated']).compareTo(
-      LedgerMath.number(left['updated']),
-    );
-
-    if (byUpdated != 0) return byUpdated;
-
-    return '${right['id'] ?? right['key'] ?? ''}'.compareTo(
-      '${left['id'] ?? left['key'] ?? ''}',
-    );
   }
 }
 
@@ -13566,7 +13096,7 @@ class _ExportService {
     for (final Map<String, dynamic> row in _rows(state['expenseDB'])) {
       rows.add(<String>[
         'Expense',
-        LedgerMath.expenseCategory(row['category']),
+        '${row['category'] ?? 'Other'}',
         '${row['date'] ?? ''}',
         '${row['note'] ?? row['description'] ?? ''}',
         'Paid / Outflow',
@@ -13690,7 +13220,7 @@ class _ExportService {
         .map(
           (Map<String, dynamic> row) => <String>[
             '${row['date'] ?? ''}',
-            LedgerMath.expenseCategory(row['category']),
+            '${row['category'] ?? 'Other'}',
             '${row['note'] ?? row['description'] ?? ''}',
             _decimal(-LedgerMath.number(row['amount']).abs()),
           ],
@@ -13856,7 +13386,7 @@ class _ExportService {
     bool Function()? stillCurrent,
   }) async {
     final StringBuffer output = StringBuffer()
-      ..writeln('AARISH DAIRY PRO — AI MASTER LEDGER')
+      ..writeln('AARISH DIARY PRO — AI MASTER LEDGER')
       ..writeln('SCOPE :: ${dataset.title}')
       ..writeln(
         'GENERATED_AT :: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}',
